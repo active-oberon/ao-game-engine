@@ -1,0 +1,16 @@
+# Active Oberon compiler output
+*.Gof*
+*.Sym*
+
+# Build output
+/build/
+/target/
+
+# Local game data
+*.[wW][aA][dD]
+
+# AI
+AGENTS.md
+CLAUDE.md
+.codex/
+.claude/

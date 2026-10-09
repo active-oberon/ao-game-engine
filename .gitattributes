@@ -1,0 +1,4 @@
+# A2 / Active Oberon sources. Without this they are detected as Modula-2,
+# and some of them as AMPL.
+*.Mod linguist-language=Oberon
+*.mod linguist-language=Oberon
