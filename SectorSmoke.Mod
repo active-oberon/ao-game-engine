@@ -1,6 +1,6 @@
 MODULE SectorSmoke;
 
-IMPORT GameGeometry, GameSurface, GameRenderer, GameMaterials;
+IMPORT GameGeometry, GameSurface, GameRenderer, GameMaterials, MathL;
 
 PROCEDURE Wall(world: GameGeometry.World; sector, neighbor: SIGNED32; ax, ay, bx, by: FLOAT64);
 VAR wall: GameGeometry.Wall;
@@ -19,12 +19,72 @@ BEGIN
 	wall.sector := sector;
 	wall.neighbor := neighbor;
 	wall.blocking := FALSE;
+	wall.omitUpper := FALSE;
+	wall.omitLower := FALSE;
 	wall.upperAnchor := 2;
 	wall.lowerAnchor := 0;
 	wall.xOffset := 0;
 	wall.yOffset := 0;
 	ASSERT(world.Add(wall))
 END Wall;
+
+PROCEDURE Sky;
+VAR world: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	texture: GameMaterials.Texture;
+	frame: GameSurface.Frame;
+	x, y, feet: FLOAT64;
+BEGIN
+	NEW(world, 8);
+	NEW(texture, 2, 2);
+	texture.Set(0, 0, 0102030H);
+	texture.Set(1, 0, 0A0B0C0H);
+	texture.Set(0, 1, 0203040H);
+	texture.Set(1, 1, 0B0C0D0H);
+	regions[0].floor := 0;
+	regions[0].ceiling := 2;
+	regions[0].light := 0;
+	regions[0].skyTexture := texture;
+	regions[0].skyUScale := 1;
+	regions[0].skyVScale := 1;
+	regions[0].skyVOffset := 0.5;
+	regions[1] := regions[0];
+	regions[1].ceiling := 1;
+	ASSERT(~world.SetSectors(regions));
+	texture.Seal;
+	regions[0].skyUScale := 0;
+	ASSERT(~world.SetSectors(regions));
+	regions[0].skyUScale := 1;
+	regions[0].skyVScale := -1;
+	ASSERT(~world.SetSectors(regions));
+	regions[0].skyVScale := 1;
+	regions[0].skyVOffset := 1000001;
+	ASSERT(~world.SetSectors(regions));
+	regions[0].skyVOffset := 0.5;
+	ASSERT(world.SetSectors(regions));
+	Wall(world, 0, -1, -4, -2, 0, -2);
+	Wall(world, 0, -1, 0, 2, -4, 2);
+	Wall(world, 0, -1, -4, 2, -4, -2);
+	Wall(world, 1, -1, 0, -2, 4, -2);
+	Wall(world, 1, -1, 4, -2, 4, 2);
+	Wall(world, 1, -1, 4, 2, 0, 2);
+	Wall(world, 0, 1, 0, -2, 0, 2);
+	Wall(world, 1, 0, 0, 2, 0, -2);
+	world.Seal;
+	NEW(frame, 32, 20);
+	GameRenderer.Render(world, frame, -2, 0, 0, 0.64);
+	ASSERT(frame.Pixel(16, 0) = 0A0B0C0H);
+	ASSERT(frame.Pixel(16, 6) = 0A0B0C0H);
+	GameRenderer.Render(world, frame, -1, 0, 0, 0.8);
+	ASSERT(frame.Pixel(16, 0) = 0A0B0C0H);
+	GameRenderer.Render(world, frame, 2, 0, -MathL.pi / 2, 0.64);
+	ASSERT(frame.Pixel(16, 0) = 0102030H);
+	x := -2;
+	y := 0;
+	feet := 0;
+	ASSERT(world.MovePlayer(x, y, feet, 4, 0, 0.25, 1.1, 0.375));
+	ASSERT(x < -0.25)
+END Sky;
 
 PROCEDURE Do*;
 VAR world: GameGeometry.World;
@@ -35,6 +95,7 @@ VAR world: GameGeometry.World;
 	frame: GameSurface.Frame;
 	x, y, feet, floor, distance: FLOAT64;
 BEGIN
+	Sky;
 	NEW(world, 8);
 	regions[0].floor := 0;
 	regions[0].ceiling := 2;

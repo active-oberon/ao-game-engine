@@ -76,6 +76,19 @@ BEGIN
 	END
 END Plane;
 
+PROCEDURE Sky(CONST sector: GameGeometry.Sector; frame: GameSurface.Frame;
+	column, top, bottom: SIGNED32; angle: FLOAT64);
+VAR row, texel: SIGNED32;
+	u, v: FLOAT64;
+BEGIN
+	u := -angle / (2 * MathL.pi) * sector.skyUScale;
+	FOR row := MAX(0, top) TO MIN(frame.height - 1, bottom) DO
+		v := sector.skyVOffset + (row + 0.5 - frame.height / 2.0) * sector.skyVScale / frame.height;
+		texel := sector.skyTexture.Sample(u, v);
+		frame.Span(column, row, row, texel)
+	END
+END Sky;
+
 PROCEDURE Face(CONST wall: GameGeometry.Wall; texture: GameMaterials.Texture;
 	anchor: FLOAT64): GameGeometry.Wall;
 VAR face: GameGeometry.Wall;
@@ -95,9 +108,10 @@ END Face;
 PROCEDURE Sectors(world: GameGeometry.World; frame: GameSurface.Frame;
 	x, y, angle, eye: FLOAT64);
 VAR column, sector, start, top, bottom, ceilingRow, floorRow, upperRow, lowerRow, step: SIGNED32;
-	dx, dy, camera, rx, ry, distance, projectedDistance, projection, near: FLOAT64;
+	dx, dy, camera, rx, ry, distance, projectedDistance, projection, near, ceiling: FLOAT64;
 	wall, face: GameGeometry.Wall;
 	front, back: GameGeometry.Sector;
+	sharedSky: BOOLEAN;
 BEGIN
 	start := world.Locate(x, y);
 	IF start < 0 THEN
@@ -125,10 +139,23 @@ BEGIN
 			END;
 			projectedDistance := MAX(0.01, distance);
 			front := world.Region(sector);
-			ceilingRow := BoundaryRow(frame, front.ceiling, eye, projection, projectedDistance, TRUE);
+			sharedSky := FALSE;
+			ceiling := front.ceiling;
+			IF wall.neighbor >= 0 THEN
+				back := world.Region(wall.neighbor);
+				sharedSky := (front.skyTexture # NIL) & (back.skyTexture # NIL);
+				IF sharedSky THEN
+					ceiling := back.ceiling
+				END
+			END;
+			ceilingRow := BoundaryRow(frame, ceiling, eye, projection, projectedDistance, TRUE);
 			floorRow := BoundaryRow(frame, front.floor, eye, projection, projectedDistance, FALSE);
-			Plane(frame, column, top, MIN(bottom, ceilingRow - 1), front.light, 0202938H,
-				front.ceilingTexture, x, y, rx, ry, front.ceiling, eye, projection, near, distance);
+			IF front.skyTexture # NIL THEN
+				Sky(front, frame, column, top, MIN(bottom, ceilingRow - 1), angle + MathL.arctan(camera * 0.66))
+			ELSE
+				Plane(frame, column, top, MIN(bottom, ceilingRow - 1), front.light, 0202938H,
+					front.ceilingTexture, x, y, rx, ry, front.ceiling, eye, projection, near, distance)
+			END;
 			Plane(frame, column, MAX(top, floorRow + 1), bottom, front.light, 035302CH,
 				front.floorTexture, x, y, rx, ry, front.floor, eye, projection, near, distance);
 			IF wall.neighbor < 0 THEN
@@ -136,24 +163,34 @@ BEGIN
 					x, y, rx, ry, projectedDistance, projection, eye);
 				EXIT
 			END;
-			back := world.Region(wall.neighbor);
 			upperRow := BoundaryRow(frame, MIN(front.ceiling, back.ceiling), eye, projection, projectedDistance, TRUE);
+			IF sharedSky THEN
+				upperRow := ceilingRow
+			END;
 			lowerRow := BoundaryRow(frame, MAX(front.floor, back.floor), eye, projection, projectedDistance, FALSE);
-			IF back.ceiling < front.ceiling THEN
+			IF (back.ceiling < front.ceiling) & ~sharedSky & ~wall.omitUpper THEN
 				face := Face(wall, wall.upper, wall.upperAnchor);
 				DrawWall(face, frame, column, MAX(top, ceilingRow), MIN(bottom, MIN(floorRow, upperRow - 1)),
 					x, y, rx, ry, projectedDistance, projection, eye)
 			END;
-			IF back.floor > front.floor THEN
+			IF (back.floor > front.floor) & ~wall.omitLower THEN
 				face := Face(wall, wall.lower, wall.lowerAnchor);
 				DrawWall(face, frame, column, MAX(top, MAX(ceilingRow, lowerRow + 1)), MIN(bottom, floorRow),
 					x, y, rx, ry, projectedDistance, projection, eye)
 			END;
 			IF MAX(front.floor, back.floor) >= MIN(front.ceiling, back.ceiling) THEN
-				face := Face(wall, wall.upper, wall.upperAnchor);
-				DrawWall(face, frame, column, MAX(top, MAX(ceilingRow, upperRow)), MIN(bottom, MIN(floorRow, lowerRow)),
-					x, y, rx, ry, projectedDistance, projection, eye);
+				IF ~wall.omitUpper THEN
+					face := Face(wall, wall.upper, wall.upperAnchor);
+					DrawWall(face, frame, column, MAX(top, MAX(ceilingRow, upperRow)), MIN(bottom, MIN(floorRow, lowerRow)),
+						x, y, rx, ry, projectedDistance, projection, eye)
+				END;
 				EXIT
+			END;
+			IF wall.omitUpper THEN
+				upperRow := ceilingRow
+			END;
+			IF wall.omitLower THEN
+				lowerRow := floorRow
 			END;
 			top := MAX(top, upperRow);
 			bottom := MIN(bottom, lowerRow);

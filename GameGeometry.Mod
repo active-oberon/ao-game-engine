@@ -8,7 +8,8 @@ TYPE
 	Sector* = RECORD
 		floor*, ceiling*: FLOAT64;
 		light*: SIGNED32;
-		floorTexture*, ceilingTexture*: GameMaterials.Texture
+		floorTexture*, ceilingTexture*, skyTexture*: GameMaterials.Texture;
+		skyUScale*, skyVScale*, skyVOffset*: FLOAT64
 	END;
 
 	Wall* = RECORD
@@ -18,7 +19,7 @@ TYPE
 		texture*: GameMaterials.Texture;
 		uScale*, vScale*, uOffset*, vOffset*: FLOAT64;
 		sector*, neighbor*: SIGNED32;
-		blocking*: BOOLEAN;
+		blocking*, omitUpper*, omitLower*: BOOLEAN;
 		upper*, lower*: GameMaterials.Texture;
 		upperAnchor*, lowerAnchor*, xOffset*, yOffset*, texelsPerUnit*: FLOAT64
 	END;
@@ -54,8 +55,16 @@ TYPE
 					RETURN FALSE
 				END;
 				IF ((source[i].floorTexture # NIL) & ~source[i].floorTexture.sealed) OR
-					((source[i].ceilingTexture # NIL) & ~source[i].ceilingTexture.sealed) THEN
+					((source[i].ceilingTexture # NIL) & ~source[i].ceilingTexture.sealed) OR
+					((source[i].skyTexture # NIL) & ~source[i].skyTexture.sealed) THEN
 					RETURN FALSE
+				END;
+				IF source[i].skyTexture # NIL THEN
+					IF ~((source[i].skyUScale > 0) & (source[i].skyUScale <= 1024)) OR
+						~((source[i].skyVScale > 0) & (source[i].skyVScale <= 1024)) OR
+						~Coordinate(source[i].skyVOffset) THEN
+						RETURN FALSE
+					END
 				END
 			END;
 			NEW(sectors, LEN(source));
