@@ -102,6 +102,38 @@ BEGIN
 	END
 END Partition;
 
+PROCEDURE MaskedMaterial;
+VAR world: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	wall: GameGeometry.Wall;
+	texture: GameMaterials.Texture;
+BEGIN
+	NEW(world, 1);
+	regions[0].ceiling := 2;
+	regions[1] := regions[0];
+	ASSERT(world.SetSectors(regions));
+	wall.ax := 0;
+	wall.ay := -2;
+	wall.bx := 0;
+	wall.by := 2;
+	wall.top := 2;
+	wall.neighbor := 1;
+	wall.uScale := 1;
+	wall.vScale := 1;
+	wall.texelsPerUnit := 1;
+	NEW(texture, 2, 2);
+	wall.texture := texture;
+	ASSERT(~world.Add(wall));
+	texture.Set(0, 0, 0);
+	texture.Seal;
+	wall.texelsPerUnit := 0;
+	ASSERT(~world.Add(wall));
+	wall.texelsPerUnit := 1025;
+	ASSERT(~world.Add(wall));
+	wall.texelsPerUnit := 1;
+	ASSERT(world.Add(wall))
+END MaskedMaterial;
+
 PROCEDURE Heights;
 VAR world, closed, reopened: GameGeometry.World;
 	regions: ARRAY 2 OF GameGeometry.Sector;
@@ -212,6 +244,7 @@ VAR world: GameGeometry.World;
 	x, y, feet, floor, distance: FLOAT64;
 BEGIN
 	Partition;
+	MaskedMaterial;
 	Heights;
 	Sky;
 	NEW(world, 8);

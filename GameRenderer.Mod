@@ -29,10 +29,20 @@ BEGIN
 	RETURN ENTIER(position)
 END BoundaryRow;
 
+PROCEDURE WallU(CONST wall: GameGeometry.Wall; x, y, rx, ry, distance: FLOAT64): FLOAT64;
+VAR wx, wy, length: FLOAT64;
+BEGIN
+	wx := x + rx * distance - wall.ax;
+	wy := y + ry * distance - wall.ay;
+	length := MathL.sqrt((wall.bx - wall.ax) * (wall.bx - wall.ax) +
+		(wall.by - wall.ay) * (wall.by - wall.ay));
+	RETURN (wx * (wall.bx - wall.ax) + wy * (wall.by - wall.ay)) / length
+END WallU;
+
 PROCEDURE DrawWall(CONST wall: GameGeometry.Wall; frame: GameSurface.Frame;
 	column, top, bottom: SIGNED32; x, y, rx, ry, distance, projection, eye: FLOAT64);
 VAR row, texel: SIGNED32;
-	u, v, wx, wy, length: FLOAT64;
+	u, v: FLOAT64;
 BEGIN
 	top := MAX(0, top);
 	bottom := MIN(frame.height - 1, bottom);
@@ -42,11 +52,7 @@ BEGIN
 	IF wall.texture = NIL THEN
 		frame.Span(column, top, bottom, Shade(wall.color, wall.light, distance))
 	ELSE
-		wx := x + rx * distance - wall.ax;
-		wy := y + ry * distance - wall.ay;
-		length := MathL.sqrt((wall.bx - wall.ax) * (wall.bx - wall.ax) +
-			(wall.by - wall.ay) * (wall.by - wall.ay));
-		u := (wx * (wall.bx - wall.ax) + wy * (wall.by - wall.ay)) / length;
+		u := WallU(wall, x, y, rx, ry, distance);
 		FOR row := top TO bottom DO
 			v := wall.top - eye - (frame.height / 2.0 - row - 0.5) * distance / projection;
 			texel := wall.texture.Sample(u * wall.uScale + wall.uOffset,
@@ -55,6 +61,28 @@ BEGIN
 		END
 	END
 END DrawWall;
+
+(* Masked keeps the nearest covered texel until the rooms behind it have rendered. *)
+PROCEDURE Masked(CONST wall: GameGeometry.Wall; frame: GameSurface.Frame;
+	VAR pixels: ARRAY OF SIGNED32; top, bottom: SIGNED32;
+	x, y, rx, ry, distance, projection, eye: FLOAT64);
+VAR row, texel: SIGNED32;
+	u, v: FLOAT64;
+BEGIN
+	u := WallU(wall, x, y, rx, ry, distance) * wall.uScale + wall.uOffset;
+	FOR row := MAX(0, top) TO MIN(frame.height - 1, bottom) DO
+		IF pixels[row] < 0 THEN
+			v := (wall.top - eye - (frame.height / 2.0 - row - 0.5) * distance / projection) *
+				wall.vScale + wall.vOffset;
+			IF (v >= 0) & (v < 1) THEN
+				texel := wall.texture.SampleMasked(u, v);
+				IF texel >= 0 THEN
+					pixels[row] := Shade(texel, wall.light, distance)
+				END
+			END
+		END
+	END
+END Masked;
 
 PROCEDURE Plane(frame: GameSurface.Frame; column, top, bottom, light, color: SIGNED32;
 	texture: GameMaterials.Texture; x, y, rx, ry, z, eye, projection, near, far: FLOAT64);
@@ -107,11 +135,12 @@ END Face;
 
 PROCEDURE Sectors(world: GameGeometry.World; frame: GameSurface.Frame;
 	x, y, angle, eye: FLOAT64);
-VAR column, sector, start, top, bottom, ceilingRow, floorRow, upperRow, lowerRow, step: SIGNED32;
+VAR column, sector, start, top, bottom, ceilingRow, floorRow, upperRow, lowerRow, step, row: SIGNED32;
 	dx, dy, camera, rx, ry, distance, projectedDistance, projection, near, ceiling: FLOAT64;
 	wall, face: GameGeometry.Wall;
 	front, back: GameGeometry.Sector;
-	sharedSky: BOOLEAN;
+	sharedSky, hasMasked: BOOLEAN;
+	masked: ARRAY 4096 OF SIGNED32;
 BEGIN
 	start := world.Locate(x, y);
 	IF start < 0 THEN
@@ -133,6 +162,7 @@ BEGIN
 		bottom := frame.height - 1;
 		near := 0;
 		step := 0;
+		hasMasked := FALSE;
 		LOOP
 			IF step = world.Count() THEN
 				EXIT
@@ -192,6 +222,22 @@ BEGIN
 				END;
 				EXIT
 			END;
+			IF (wall.texture # NIL) & ~wall.omitMiddle THEN
+				IF ~hasMasked THEN
+					FOR row := 0 TO frame.height - 1 DO
+						masked[row] := -1
+					END;
+					hasMasked := TRUE
+				END;
+				ceiling := MIN(front.ceiling, back.ceiling);
+				IF wall.middleFromFloor THEN
+					ceiling := MAX(front.floor, back.floor) + wall.texture.height / wall.texelsPerUnit
+				END;
+				face := Face(wall, wall.texture, ceiling);
+				Masked(face, frame, masked,
+					MAX(top, BoundaryRow(frame, MIN(front.ceiling, back.ceiling), eye, projection, projectedDistance, TRUE)),
+					MIN(bottom, lowerRow), x, y, rx, ry, projectedDistance, projection, eye)
+			END;
 			IF wall.omitUpper THEN
 				upperRow := ceilingRow
 			END;
@@ -202,6 +248,13 @@ BEGIN
 			bottom := MIN(bottom, lowerRow);
 			near := distance;
 			sector := wall.neighbor
+		END;
+		IF hasMasked THEN
+			FOR row := 0 TO frame.height - 1 DO
+				IF masked[row] >= 0 THEN
+					frame.Span(column, row, row, masked[row])
+				END
+			END
 		END
 	END
 END Sectors;

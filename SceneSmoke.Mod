@@ -29,6 +29,12 @@ BEGIN
 	ASSERT(~GameBytes.Range(bytes, 1, MAX(SIGNED32)));
 	ASSERT(~GameBytes.Range(bytes, MAX(SIGNED32), 1));
 	NEW(texture, 2, 2);
+	texture.Set(0, 0, 0);
+	texture.Seal;
+	ASSERT(texture.SampleMasked(0.1, 0.1) = 0);
+	ASSERT(texture.SampleMasked(0.6, 0.1) = -1);
+	ASSERT(texture.Sample(0.6, 0.1) = 0);
+	NEW(texture, 2, 2);
 	texture.Set(0, 0, 0FF0000H);
 	texture.Set(1, 0, 000FF00H);
 	texture.Set(0, 1, 00000FFH);

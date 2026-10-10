@@ -210,7 +210,7 @@ TYPE
 				END;
 				IF ((wall.upper # NIL) & ~wall.upper.sealed) OR
 					((wall.lower # NIL) & ~wall.lower.sealed) OR
-					(((wall.upper # NIL) OR (wall.lower # NIL)) &
+					(((wall.upper # NIL) OR (wall.lower # NIL) OR ((wall.texture # NIL) & (wall.neighbor >= 0))) &
 					~((wall.texelsPerUnit > 0) & (wall.texelsPerUnit <= 1024))) THEN
 					RETURN FALSE
 				END;

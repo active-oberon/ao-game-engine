@@ -7,11 +7,15 @@ TYPE
 		sealed-: BOOLEAN;
 
 		PROCEDURE &Init*(w, h: SIGNED32);
+		VAR i: SIGNED32;
 		BEGIN
 			ASSERT((w > 0) & (w <= 1024) & (h > 0) & (h <= 1024));
 			width := w;
 			height := h;
 			NEW(pixels, w * h);
+			FOR i := 0 TO w * h - 1 DO
+				pixels[i] := -1
+			END;
 			sealed := FALSE
 		END Init;
 
@@ -29,6 +33,11 @@ TYPE
 		END Seal;
 
 		PROCEDURE Sample*(u, v: FLOAT64): SIGNED32;
+		BEGIN
+			RETURN MAX(0, SampleMasked(u, v))
+		END Sample;
+
+		PROCEDURE SampleMasked*(u, v: FLOAT64): SIGNED32;
 		VAR x, y: SIGNED32;
 		BEGIN
 			ASSERT(sealed);
@@ -39,7 +48,7 @@ TYPE
 			x := ENTIER(u * width);
 			y := ENTIER(v * height);
 			RETURN pixels[y * width + x]
-		END Sample;
+		END SampleMasked;
 	END Texture;
 
 END GameMaterials.
