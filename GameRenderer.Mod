@@ -2,6 +2,13 @@ MODULE GameRenderer;
 
 IMPORT GameGeometry, GameSurface, GameMaterials, MathL;
 
+TYPE Sprite* = RECORD
+	x*, y*, z*, texelsPerUnit*: FLOAT64;
+	texture*: GameMaterials.Texture;
+	left*, top*, light*: SIGNED32;
+	flipped*, fullbright*: BOOLEAN
+END;
+
 PROCEDURE Shade(color, light: SIGNED32; distance: FLOAT64): SIGNED32;
 VAR shade: SIGNED32;
 BEGIN
@@ -50,35 +57,33 @@ BEGIN
 		RETURN
 	END;
 	IF wall.texture = NIL THEN
-		frame.Span(column, top, bottom, Shade(wall.color, wall.light, distance))
+		frame.DepthSpan(column, top, bottom, Shade(wall.color, wall.light, distance), distance)
 	ELSE
 		u := WallU(wall, x, y, rx, ry, distance);
 		FOR row := top TO bottom DO
 			v := wall.top - eye - (frame.height / 2.0 - row - 0.5) * distance / projection;
 			texel := wall.texture.Sample(u * wall.uScale + wall.uOffset,
 				v * wall.vScale + wall.vOffset);
-			frame.Span(column, row, row, Shade(texel, wall.light, distance))
+			frame.DepthSpan(column, row, row, Shade(texel, wall.light, distance), distance)
 		END
 	END
 END DrawWall;
 
-(* Masked keeps the nearest covered texel until the rooms behind it have rendered. *)
+(* Masked retains covered grille pixels at their depth so later walls and sprites share occlusion. *)
 PROCEDURE Masked(CONST wall: GameGeometry.Wall; frame: GameSurface.Frame;
-	VAR pixels: ARRAY OF SIGNED32; top, bottom: SIGNED32;
+	column, top, bottom: SIGNED32;
 	x, y, rx, ry, distance, projection, eye: FLOAT64);
 VAR row, texel: SIGNED32;
 	u, v: FLOAT64;
 BEGIN
 	u := WallU(wall, x, y, rx, ry, distance) * wall.uScale + wall.uOffset;
 	FOR row := MAX(0, top) TO MIN(frame.height - 1, bottom) DO
-		IF pixels[row] < 0 THEN
-			v := (wall.top - eye - (frame.height / 2.0 - row - 0.5) * distance / projection) *
-				wall.vScale + wall.vOffset;
-			IF (v >= 0) & (v < 1) THEN
-				texel := wall.texture.SampleMasked(u, v);
-				IF texel >= 0 THEN
-					pixels[row] := Shade(texel, wall.light, distance)
-				END
+		v := (wall.top - eye - (frame.height / 2.0 - row - 0.5) * distance / projection) *
+			wall.vScale + wall.vOffset;
+		IF (v >= 0) & (v < 1) THEN
+			texel := wall.texture.SampleMasked(u, v);
+			IF texel >= 0 THEN
+				frame.DepthSpan(column, row, row, Shade(texel, wall.light, distance), distance)
 			END
 		END
 	END
@@ -98,7 +103,7 @@ BEGIN
 				IF texture # NIL THEN
 					texel := texture.Sample(x + rx * distance, -y - ry * distance)
 				END;
-				frame.Span(column, row, row, Shade(texel, light, distance))
+				frame.DepthSpan(column, row, row, Shade(texel, light, distance), distance)
 			END
 		END
 	END
@@ -113,7 +118,7 @@ BEGIN
 	FOR row := MAX(0, top) TO MIN(frame.height - 1, bottom) DO
 		v := sector.skyVOffset + (row + 0.5 - frame.height / 2.0) * sector.skyVScale / frame.height;
 		texel := sector.skyTexture.Sample(u, v);
-		frame.Span(column, row, row, texel)
+		frame.DepthSpan(column, row, row, texel, MAX(FLOAT64))
 	END
 END Sky;
 
@@ -135,12 +140,11 @@ END Face;
 
 PROCEDURE Sectors(world: GameGeometry.World; frame: GameSurface.Frame;
 	x, y, angle, eye: FLOAT64);
-VAR column, sector, start, top, bottom, ceilingRow, floorRow, upperRow, lowerRow, step, row: SIGNED32;
+VAR column, sector, start, top, bottom, ceilingRow, floorRow, upperRow, lowerRow, step: SIGNED32;
 	dx, dy, camera, rx, ry, distance, projectedDistance, projection, near, ceiling: FLOAT64;
 	wall, face: GameGeometry.Wall;
 	front, back: GameGeometry.Sector;
-	sharedSky, hasMasked: BOOLEAN;
-	masked: ARRAY 4096 OF SIGNED32;
+	sharedSky: BOOLEAN;
 BEGIN
 	start := world.Locate(x, y);
 	IF start < 0 THEN
@@ -162,7 +166,6 @@ BEGIN
 		bottom := frame.height - 1;
 		near := 0;
 		step := 0;
-		hasMasked := FALSE;
 		LOOP
 			IF step = world.Count() THEN
 				EXIT
@@ -197,6 +200,7 @@ BEGIN
 					DrawWall(wall, frame, column, MAX(top, ceilingRow), MIN(bottom, floorRow),
 						x, y, rx, ry, projectedDistance, projection, eye)
 				END;
+				frame.Occlude(column, MAX(top, ceilingRow), MIN(bottom, floorRow), projectedDistance);
 				EXIT
 			END;
 			upperRow := BoundaryRow(frame, MIN(front.ceiling, back.ceiling), eye, projection, projectedDistance, TRUE);
@@ -220,21 +224,16 @@ BEGIN
 					DrawWall(face, frame, column, MAX(top, MAX(ceilingRow, upperRow)), MIN(bottom, MIN(floorRow, lowerRow)),
 						x, y, rx, ry, projectedDistance, projection, eye)
 				END;
+				frame.Occlude(column, MAX(top, ceilingRow), MIN(bottom, floorRow), projectedDistance);
 				EXIT
 			END;
 			IF (wall.texture # NIL) & ~wall.omitMiddle THEN
-				IF ~hasMasked THEN
-					FOR row := 0 TO frame.height - 1 DO
-						masked[row] := -1
-					END;
-					hasMasked := TRUE
-				END;
 				ceiling := MIN(front.ceiling, back.ceiling);
 				IF wall.middleFromFloor THEN
 					ceiling := MAX(front.floor, back.floor) + wall.texture.height / wall.texelsPerUnit
 				END;
 				face := Face(wall, wall.texture, ceiling);
-				Masked(face, frame, masked,
+				Masked(face, frame, column,
 					MAX(top, BoundaryRow(frame, MIN(front.ceiling, back.ceiling), eye, projection, projectedDistance, TRUE)),
 					MIN(bottom, lowerRow), x, y, rx, ry, projectedDistance, projection, eye)
 			END;
@@ -248,13 +247,6 @@ BEGIN
 			bottom := MIN(bottom, lowerRow);
 			near := distance;
 			sector := wall.neighbor
-		END;
-		IF hasMasked THEN
-			FOR row := 0 TO frame.height - 1 DO
-				IF masked[row] >= 0 THEN
-					frame.Span(column, row, row, masked[row])
-				END
-			END
 		END
 	END
 END Sectors;
@@ -287,5 +279,56 @@ BEGIN
 		END
 	END
 END Render;
+
+PROCEDURE DrawSprite*(CONST sprite: Sprite; frame: GameSurface.Frame;
+	x, y, angle, eye: FLOAT64);
+VAR column, row, first, last, upper, lower, texel: SIGNED32;
+	dx, dy, distance, side, projection, left, top, width, height, u, v: FLOAT64;
+BEGIN
+	ASSERT((sprite.x >= -1000000) & (sprite.x <= 1000000));
+	ASSERT((sprite.y >= -1000000) & (sprite.y <= 1000000));
+	ASSERT((sprite.z >= -1000000) & (sprite.z <= 1000000));
+	ASSERT((sprite.texelsPerUnit > 0) & (sprite.texelsPerUnit <= 1024));
+	ASSERT((sprite.left >= -65536) & (sprite.left <= 65536));
+	ASSERT((sprite.top >= -65536) & (sprite.top <= 65536));
+	ASSERT((sprite.light >= 0) & (sprite.light <= 255));
+	ASSERT((sprite.texture # NIL) & sprite.texture.sealed);
+	dx := MathL.cos(angle);
+	dy := MathL.sin(angle);
+	distance := (sprite.x - x) * dx + (sprite.y - y) * dy;
+	IF distance < 0.01 THEN
+		RETURN
+	END;
+	side := -(sprite.x - x) * dy + (sprite.y - y) * dx;
+	projection := frame.width / 1.32;
+	left := sprite.left / sprite.texelsPerUnit;
+	width := sprite.texture.width / sprite.texelsPerUnit;
+	height := sprite.texture.height / sprite.texelsPerUnit;
+	top := sprite.z + sprite.top / sprite.texelsPerUnit;
+	first := ENTIER(MAX(0.0, MIN(FLOAT64(frame.width), frame.width / 2.0 + (side - left) * projection / distance)));
+	last := ENTIER(MAX(-1.0, MIN(FLOAT64(frame.width - 1), frame.width / 2.0 + (side - left + width) * projection / distance)));
+	upper := MAX(0, Row(frame, top, eye, projection, distance));
+	lower := MIN(frame.height - 1, Row(frame, top - height, eye, projection, distance));
+	FOR column := first TO last DO
+		u := ((column + 0.5 - frame.width / 2.0) * distance / projection - side + left) / width;
+		IF (u >= 0) & (u < 1) THEN
+			IF sprite.flipped THEN
+				u := (sprite.texture.width - 1 - ENTIER(u * sprite.texture.width) + 0.5) / sprite.texture.width
+			END;
+			FOR row := upper TO lower DO
+				v := (top - eye - (frame.height / 2.0 - row - 0.5) * distance / projection) / height;
+				IF (v >= 0) & (v < 1) THEN
+					texel := sprite.texture.SampleMasked(u, v);
+					IF texel >= 0 THEN
+						IF ~sprite.fullbright THEN
+							texel := Shade(texel, sprite.light, distance)
+						END;
+						frame.DepthSpan(column, row, row, texel, distance)
+					END
+				END
+			END
+		END
+	END
+END DrawSprite;
 
 END GameRenderer.

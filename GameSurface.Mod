@@ -6,13 +6,19 @@ TYPE
 	Frame* = OBJECT
 	VAR width-, height-: SIGNED32;
 		pixels-: POINTER TO ARRAY OF CHAR;
+		depth: POINTER TO ARRAY OF FLOAT64;
 
 		PROCEDURE &Init*(w, h: SIGNED32);
+		VAR i: SIGNED32;
 		BEGIN
 			ASSERT((w > 0) & (w <= 4096) & (h > 0) & (h <= 4096));
 			width := w;
 			height := h;
-			NEW(pixels, w * h * 4)
+			NEW(pixels, w * h * 4);
+			NEW(depth, w * h);
+			FOR i := 0 TO w * h - 1 DO
+				depth[i] := MAX(FLOAT64)
+			END
 		END Init;
 
 		PROCEDURE Pixel*(x, y: SIGNED32): SIGNED32;
@@ -52,9 +58,41 @@ TYPE
 			END
 		END Span;
 
-		PROCEDURE Background*(ceiling, floor: SIGNED32);
-		VAR x: SIGNED32;
+		PROCEDURE DepthSpan*(x, top, bottom, color: SIGNED32; distance: FLOAT64);
+		VAR y, offset: SIGNED32;
 		BEGIN
+			ASSERT((distance > 0) & (distance <= MAX(FLOAT64)));
+			IF (x < 0) OR (x >= width) THEN
+				RETURN
+			END;
+			FOR y := MAX(0, top) TO MIN(height - 1, bottom) DO
+				offset := y * width + x;
+				IF distance <= depth[offset] THEN
+					Span(x, y, y, color);
+					depth[offset] := distance
+				END
+			END
+		END DepthSpan;
+
+		PROCEDURE Occlude*(x, top, bottom: SIGNED32; distance: FLOAT64);
+		VAR y, offset: SIGNED32;
+		BEGIN
+			ASSERT((distance > 0) & (distance <= MAX(FLOAT64)));
+			IF (x < 0) OR (x >= width) THEN
+				RETURN
+			END;
+			FOR y := MAX(0, top) TO MIN(height - 1, bottom) DO
+				offset := y * width + x;
+				depth[offset] := MIN(depth[offset], distance)
+			END
+		END Occlude;
+
+		PROCEDURE Background*(ceiling, floor: SIGNED32);
+		VAR x, i: SIGNED32;
+		BEGIN
+			FOR i := 0 TO width * height - 1 DO
+				depth[i] := MAX(FLOAT64)
+			END;
 			FOR x := 0 TO width - 1 DO
 				Span(x, 0, height DIV 2 - 1, ceiling);
 				Span(x, height DIV 2, height - 1, floor)
