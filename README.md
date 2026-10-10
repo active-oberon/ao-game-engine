@@ -24,7 +24,9 @@ steps, player clearance, descent, projected floor pixels, sealed sky materials,
 fullbright panorama mapping, shared sky across different ceiling heights and
 physical ceiling clearance beneath sky. Partition checks cover copied trees,
 node/leaf references, cycles, axis/diagonal decisions, exact boundary ties and
-wall bounds. Player checks distinguish tangent contact from penetration. Ceiling snapshot
+wall bounds. Player checks distinguish tangent contact from penetration. Occupancy checks
+cover game-provided obstacle rejection, sliding across a step, exact tangents,
+invalid motion without mutation and the NIL callback path. Ceiling snapshot
 checks reject invalid input, preserve earlier worlds and update rendering and
 clearance together.
 Masked checks distinguish transparent texels from opaque black, reject
@@ -123,6 +125,16 @@ partition directions and all references are checked before publication.
 they retain the closed-contour test. This indexes region membership; ray casting
 and collision continue to use the wall geometry. Rays choose the region
 immediately ahead of the camera so exact portal starts still render.
+
+`MovePlayerChecked` adds a `PositionCheck` delegate to the existing bounded
+axis movement. It runs after world clearance accepts a proposed substep and
+before position/floor updates; rejecting an axis leaves it unchanged while the
+other axis can slide. `MovePlayer` keeps its existing interface and calls the
+same implementation with NIL. The delegate receives valid candidate x/y and
+radius and must return without mutating the movement state. Footprint shapes,
+actor height policy and actor storage remain game-owned. The initial position
+is validated against world geometry; occupancy checks apply to proposed moves,
+so a blocked actor does not change the operation's success/error contract.
 
 `WithCeilings` returns a new sealed world with copied ceiling heights and shared
 geometry, sectors, materials and partition data. It returns NIL for an unsealed
