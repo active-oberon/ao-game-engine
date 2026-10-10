@@ -32,7 +32,8 @@ unsealed materials and invalid texel density. Doom's integration checks cover
 layer ordering, clipping, offsets, pegging, moving ceilings and same-sector lines.
 Sprite checks cover depth ordering, reset, invisible occluders, transparent
 holes, opaque black, mirrored columns, fullbright shading, overlapping sprites
-and walls. Four executables each have a ten-second timeout. The display is checked through
+and walls. Text checks cover glyph coverage, transparent spacing, unknown
+characters and clipping at the frame edges. Four executables each have a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
 ## Modules and ownership
@@ -43,6 +44,7 @@ and walls. Four executables each have a ten-second timeout. The display is check
 - `GameSurface`: reusable BGRX and depth buffers, clipped depth writes and PPM export.
 - `GameMaterials`: sealed RGB textures with binary coverage and wrapping sample coordinates.
 - `GameRenderer`: wall/plane/sprite projection, material mapping, light and distance shading.
+- `GameText`: original 3-by-5 bitmap text for asset-free overlays.
 - `GameDisplay`: integer scaling and presentation through MiniA2 `Displays`.
 - `GameBytes`: bounded file reads and explicit little-endian integer decoding.
 
@@ -53,6 +55,12 @@ The FLOAT64 depth buffer adds eight bytes per pixel: 512000 bytes at 320 x 200.
 `Background` resets depth, `DepthSpan` writes covered pixels only when they are
 no farther away, and `Occlude` blocks later pixels without changing the color.
 `Span` remains a color-only operation for backgrounds and overlays.
+
+`GameText.Draw` writes uppercase ASCII letters, digits and basic punctuation
+with a four-pixel advance and five-pixel height. Spaces and unsupported characters
+advance without drawing. It uses clipped color-only spans, so overlays leave
+scene depth intact and need no font files or per-frame allocation. Games own
+labels, values, panel layout and state capture.
 
 ## Simulation contract
 
