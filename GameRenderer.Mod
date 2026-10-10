@@ -124,7 +124,11 @@ BEGIN
 		camera := (2.0 * column + 1) / frame.width - 1;
 		rx := dx - dy * camera * 0.66;
 		ry := dy + dx * camera * 0.66;
-		sector := start;
+		(* Choose the sector ahead of a boundary camera because casting skips zero-distance hits. *)
+		sector := world.Locate(x + rx * 0.000002, y + ry * 0.000002);
+		IF sector < 0 THEN
+			sector := start
+		END;
 		top := 0;
 		bottom := frame.height - 1;
 		near := 0;
@@ -159,8 +163,10 @@ BEGIN
 			Plane(frame, column, MAX(top, floorRow + 1), bottom, front.light, 035302CH,
 				front.floorTexture, x, y, rx, ry, front.floor, eye, projection, near, distance);
 			IF wall.neighbor < 0 THEN
-				DrawWall(wall, frame, column, MAX(top, ceilingRow), MIN(bottom, floorRow),
-					x, y, rx, ry, projectedDistance, projection, eye);
+				IF ~wall.omitMiddle THEN
+					DrawWall(wall, frame, column, MAX(top, ceilingRow), MIN(bottom, floorRow),
+						x, y, rx, ry, projectedDistance, projection, eye)
+				END;
 				EXIT
 			END;
 			upperRow := BoundaryRow(frame, MIN(front.ceiling, back.ceiling), eye, projection, projectedDistance, TRUE);

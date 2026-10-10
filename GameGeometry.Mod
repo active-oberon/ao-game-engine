@@ -19,15 +19,22 @@ TYPE
 		texture*: GameMaterials.Texture;
 		uScale*, vScale*, uOffset*, vOffset*: FLOAT64;
 		sector*, neighbor*: SIGNED32;
-		blocking*, omitUpper*, omitLower*: BOOLEAN;
+		blocking*, omitMiddle*, omitUpper*, omitLower*: BOOLEAN;
 		upper*, lower*: GameMaterials.Texture;
 		upperAnchor*, lowerAnchor*, xOffset*, yOffset*, texelsPerUnit*: FLOAT64
+	END;
+
+	Partition* = RECORD
+		x*, y*, dx*, dy*: FLOAT64;
+		front*, back*: SIGNED32
 	END;
 
 	World* = OBJECT
 	VAR walls: POINTER TO ARRAY OF Wall;
 		sectors: POINTER TO ARRAY OF Sector;
-		heads, next: POINTER TO ARRAY OF SIGNED32;
+		heads, next, leaves: POINTER TO ARRAY OF SIGNED32;
+		partitions: POINTER TO ARRAY OF Partition;
+		minX, minY, maxX, maxY: FLOAT64;
 		count: SIGNED32;
 		sealed: BOOLEAN;
 
@@ -37,6 +44,8 @@ TYPE
 			NEW(walls, capacity);
 			NEW(next, capacity);
 			sectors := NIL;
+			partitions := NIL;
+			leaves := NIL;
 			count := 0;
 			sealed := FALSE
 		END Init;
@@ -50,7 +59,6 @@ TYPE
 			END;
 			FOR i := 0 TO SIGNED32(LEN(source)) - 1 DO
 				IF ~Coordinate(source[i].floor) OR ~Coordinate(source[i].ceiling) OR
-					(source[i].ceiling < source[i].floor) OR
 					(source[i].light < 0) OR (source[i].light > 255) THEN
 					RETURN FALSE
 				END;
@@ -75,6 +83,40 @@ TYPE
 			END;
 			RETURN TRUE
 		END SetSectors;
+
+		(* SetPartition copies a bottom-up tree to keep sector lookup bounded and immutable. *)
+		PROCEDURE SetPartition*(CONST nodes: ARRAY OF Partition; CONST regions: ARRAY OF SIGNED32): BOOLEAN;
+		VAR i: SIGNED32;
+		BEGIN
+			IF sealed OR (count # 0) OR (sectors = NIL) OR (partitions # NIL) OR
+				(LEN(nodes) > 65536) OR (LEN(regions) = 0) OR (LEN(regions) > 65536) OR
+				((LEN(nodes) = 0) & (LEN(regions) # 1)) THEN
+				RETURN FALSE
+			END;
+			FOR i := 0 TO SIGNED32(LEN(regions)) - 1 DO
+				IF (regions[i] < 0) OR (regions[i] >= LEN(sectors^)) THEN
+					RETURN FALSE
+				END
+			END;
+			FOR i := 0 TO SIGNED32(LEN(nodes)) - 1 DO
+				IF ~Coordinate(nodes[i].x) OR ~Coordinate(nodes[i].y) OR
+					~Coordinate(nodes[i].dx) OR ~Coordinate(nodes[i].dy) OR
+					((nodes[i].dx = 0) & (nodes[i].dy = 0)) OR
+					~Child(nodes[i].front, i, SIGNED32(LEN(regions))) OR
+					~Child(nodes[i].back, i, SIGNED32(LEN(regions))) THEN
+					RETURN FALSE
+				END
+			END;
+			NEW(partitions, LEN(nodes));
+			NEW(leaves, LEN(regions));
+			FOR i := 0 TO SIGNED32(LEN(nodes)) - 1 DO
+				partitions[i] := nodes[i]
+			END;
+			FOR i := 0 TO SIGNED32(LEN(regions)) - 1 DO
+				leaves[i] := regions[i]
+			END;
+			RETURN TRUE
+		END SetPartition;
 
 		PROCEDURE SectorCount*(): SIGNED32;
 		BEGIN
@@ -101,7 +143,7 @@ TYPE
 				RETURN FALSE
 			END;
 			IF ((wall.ax = wall.bx) & (wall.ay = wall.by)) OR
-				(wall.top < wall.bottom) OR ((sectors = NIL) & (wall.top = wall.bottom)) OR (wall.color < 0) OR
+				((sectors = NIL) & (wall.top <= wall.bottom)) OR (wall.color < 0) OR
 				(wall.color > 0FFFFFFH) OR (wall.light < 0) OR (wall.light > 255) THEN
 				RETURN FALSE
 			END;
@@ -128,6 +170,17 @@ TYPE
 				next[count] := heads[wall.sector];
 				heads[wall.sector] := count
 			END;
+			IF count = 0 THEN
+				minX := MIN(wall.ax, wall.bx);
+				maxX := MAX(wall.ax, wall.bx);
+				minY := MIN(wall.ay, wall.by);
+				maxY := MAX(wall.ay, wall.by)
+			ELSE
+				minX := MIN(minX, MIN(wall.ax, wall.bx));
+				maxX := MAX(maxX, MAX(wall.ax, wall.bx));
+				minY := MIN(minY, MIN(wall.ay, wall.by));
+				maxY := MAX(maxY, MAX(wall.ay, wall.by))
+			END;
 			walls[count] := wall;
 			INC(count);
 			RETURN TRUE
@@ -149,6 +202,9 @@ TYPE
 			inside: BOOLEAN;
 		BEGIN
 			ASSERT(sealed & (sector >= 0) & (sector < SectorCount()));
+			IF partitions # NIL THEN
+				RETURN Locate(x, y) = sector
+			END;
 			inside := FALSE;
 			i := heads[sector];
 			WHILE i >= 0 DO
@@ -166,8 +222,36 @@ TYPE
 
 		PROCEDURE Locate*(x, y: FLOAT64): SIGNED32;
 		VAR i: SIGNED32;
+			front: BOOLEAN;
+			partition: Partition;
 		BEGIN
 			ASSERT(sealed);
+			IF ~Coordinate(x) OR ~Coordinate(y) THEN
+				RETURN -1
+			END;
+			IF partitions # NIL THEN
+				(* shortcut: only wall bounds exclude void; add leaf coverage checks for edited BSP maps. *)
+				IF (count = 0) OR (x < minX) OR (x > maxX) OR (y < minY) OR (y > maxY) THEN
+					RETURN -1
+				END;
+				i := SIGNED32(LEN(partitions^)) - 1;
+				WHILE i >= 0 DO
+					partition := partitions[i];
+					IF partition.dx = 0 THEN
+						front := (x <= partition.x) = (partition.dy > 0)
+					ELSIF partition.dy = 0 THEN
+						front := (y >= partition.y) = (partition.dx > 0)
+					ELSE
+						front := (x - partition.x) * partition.dy < (y - partition.y) * partition.dx
+					END;
+					IF front THEN
+						i := partition.front
+					ELSE
+						i := partition.back
+					END
+				END;
+				RETURN leaves[-(i + 1)]
+			END;
 			FOR i := 0 TO SectorCount() - 1 DO
 				IF Contains(i, x, y) THEN
 					RETURN i
@@ -238,7 +322,7 @@ TYPE
 			floor := sectors[sector].floor;
 			ceiling := sectors[sector].ceiling;
 			FOR i := 0 TO count - 1 DO
-				IF DistanceSquared(walls[i], x, y) <= radius * radius THEN
+				IF DistanceSquared(walls[i], x, y) < radius * radius THEN
 					IF (walls[i].neighbor < 0) OR walls[i].blocking THEN
 						RETURN FALSE
 					END;
@@ -329,6 +413,14 @@ BEGIN
 	qy := y - (wall.ay + t * sy);
 	RETURN qx * qx + qy * qy
 END DistanceSquared;
+
+PROCEDURE Child(index, parent, leaves: SIGNED32): BOOLEAN;
+BEGIN
+	IF index >= 0 THEN
+		RETURN index < parent
+	END;
+	RETURN -(index + 1) < leaves
+END Child;
 
 PROCEDURE Coordinate(value: FLOAT64): BOOLEAN;
 BEGIN

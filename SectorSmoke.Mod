@@ -19,6 +19,7 @@ BEGIN
 	wall.sector := sector;
 	wall.neighbor := neighbor;
 	wall.blocking := FALSE;
+	wall.omitMiddle := FALSE;
 	wall.omitUpper := FALSE;
 	wall.omitLower := FALSE;
 	wall.upperAnchor := 2;
@@ -27,6 +28,79 @@ BEGIN
 	wall.yOffset := 0;
 	ASSERT(world.Add(wall))
 END Wall;
+
+PROCEDURE RoomWalls(world: GameGeometry.World);
+BEGIN
+	Wall(world, 0, -1, -4, -2, 0, -2);
+	Wall(world, 0, -1, 0, 2, -4, 2);
+	Wall(world, 0, -1, -4, 2, -4, -2);
+	Wall(world, 1, -1, 0, -2, 4, -2);
+	Wall(world, 1, -1, 4, -2, 4, 2);
+	Wall(world, 1, -1, 4, 2, 0, 2);
+	Wall(world, 0, 1, 0, -2, 0, 2);
+	Wall(world, 1, 0, 0, 2, 0, -2)
+END RoomWalls;
+
+PROCEDURE Partition;
+VAR world: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	nodes: ARRAY 1 OF GameGeometry.Partition;
+	leaves: ARRAY 2 OF SIGNED32;
+	direction: SIGNED32;
+BEGIN
+	FOR direction := 0 TO 2 DO
+		NEW(world, 8);
+		regions[0].ceiling := 2;
+		regions[1] := regions[0];
+		leaves[0] := 0;
+		leaves[1] := 1;
+		nodes[0].x := 0;
+		nodes[0].dx := 0;
+		nodes[0].dy := -4;
+		nodes[0].front := -2;
+		nodes[0].back := -1;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		ASSERT(world.SetSectors(regions));
+		leaves[1] := 2;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		leaves[1] := 1;
+		nodes[0].front := 0;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		nodes[0].front := -3;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		nodes[0].front := MIN(SIGNED32);
+		ASSERT(~world.SetPartition(nodes, leaves));
+		nodes[0].front := -2;
+		nodes[0].dy := 0;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		nodes[0].dy := -4;
+		nodes[0].x := 1000001;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		nodes[0].x := 0;
+		IF direction > 0 THEN
+			nodes[0].dx := 4
+		END;
+		IF direction = 1 THEN
+			nodes[0].dy := 0
+		END;
+		ASSERT(world.SetPartition(nodes, leaves));
+		ASSERT(~world.SetPartition(nodes, leaves));
+		nodes[0].front := -1;
+		leaves[1] := 0;
+		RoomWalls(world);
+		world.Seal;
+		ASSERT(~world.SetPartition(nodes, leaves));
+		ASSERT(world.Locate(0, 0) = direction MOD 2);
+		ASSERT(world.Locate(20, 0) = -1);
+		IF direction = 0 THEN
+			ASSERT(world.Locate(2, 0) = 1);
+			ASSERT(world.Locate(-2, 0) = 0)
+		ELSE
+			ASSERT(world.Locate(2, 1) = 1);
+			ASSERT(world.Locate(-2, -1) = 0)
+		END
+	END
+END Partition;
 
 PROCEDURE Sky;
 VAR world: GameGeometry.World;
@@ -62,14 +136,7 @@ BEGIN
 	ASSERT(~world.SetSectors(regions));
 	regions[0].skyVOffset := 0.5;
 	ASSERT(world.SetSectors(regions));
-	Wall(world, 0, -1, -4, -2, 0, -2);
-	Wall(world, 0, -1, 0, 2, -4, 2);
-	Wall(world, 0, -1, -4, 2, -4, -2);
-	Wall(world, 1, -1, 0, -2, 4, -2);
-	Wall(world, 1, -1, 4, -2, 4, 2);
-	Wall(world, 1, -1, 4, 2, 0, 2);
-	Wall(world, 0, 1, 0, -2, 0, 2);
-	Wall(world, 1, 0, 0, 2, 0, -2);
+	RoomWalls(world);
 	world.Seal;
 	NEW(frame, 32, 20);
 	GameRenderer.Render(world, frame, -2, 0, 0, 0.64);
@@ -95,6 +162,7 @@ VAR world: GameGeometry.World;
 	frame: GameSurface.Frame;
 	x, y, feet, floor, distance: FLOAT64;
 BEGIN
+	Partition;
 	Sky;
 	NEW(world, 8);
 	regions[0].floor := 0;
@@ -114,14 +182,7 @@ BEGIN
 	ASSERT(world.SetSectors(regions));
 	ASSERT(~world.SetSectors(regions));
 	regions[0].floor := -10;
-	Wall(world, 0, -1, -4, -2, 0, -2);
-	Wall(world, 0, -1, 0, 2, -4, 2);
-	Wall(world, 0, -1, -4, 2, -4, -2);
-	Wall(world, 1, -1, 0, -2, 4, -2);
-	Wall(world, 1, -1, 4, -2, 4, 2);
-	Wall(world, 1, -1, 4, 2, 0, 2);
-	Wall(world, 0, 1, 0, -2, 0, 2);
-	Wall(world, 1, 0, 0, 2, 0, -2);
+	RoomWalls(world);
 	world.Seal;
 	ASSERT(~world.SetSectors(regions));
 	ASSERT(world.SectorCount() = 2);
@@ -131,6 +192,8 @@ BEGIN
 	ASSERT(world.Locate(2, 0) = 1);
 	ASSERT(world.Locate(5, 0) = -1);
 	ASSERT(~world.Stand(-4, 0, 0.25, 0, 0.875, 0.375, floor));
+	ASSERT(world.Stand(-3.75, 0, 0.25, 0, 0.875, 0.375, floor));
+	ASSERT(~world.Stand(-3.750001, 0, 0.25, 0, 0.875, 0.375, floor));
 	ASSERT(~world.Stand(0, 0, 0.25, 0, 0.875, 0.2, floor));
 	ASSERT(~world.Stand(0, 0, 0.25, 0, 1.8, 0.375, floor));
 	ASSERT(world.Stand(0, 0, 0.25, 0, 0.875, 0.375, floor));

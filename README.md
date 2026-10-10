@@ -19,7 +19,9 @@ signed binary decoding, hostile byte ranges, fractional tick accumulation, seale
 Sector checks cover copied immutable regions, portal ray traversal, bounded
 steps, player clearance, descent, projected floor pixels, sealed sky materials,
 fullbright panorama mapping, shared sky across different ceiling heights and
-physical ceiling clearance beneath sky.
+physical ceiling clearance beneath sky. Partition checks cover copied trees,
+node/leaf references, cycles, axis/diagonal decisions, exact boundary ties and
+wall bounds. Player checks distinguish tangent contact from penetration.
 Every executable has a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
@@ -54,11 +56,15 @@ activity that needs this lock. This version has no callback failure recovery.
 long pause and owns input snapshots. Doom clamps a frame delay to 250 ms and
 runs at 35 ticks per second; those choices are game policy.
 
-Build a `World`, optionally call `SetSectors`, add validated walls, then `Seal` it
-before reading. Each sector wall names its owning sector and its neighbor, or
+Build a `World`, optionally call `SetSectors` and `SetPartition`, add validated
+walls, then `Seal` it before reading. Each sector wall names its owning sector and its neighbor, or
 `-1` for a solid boundary. Shared edges need a directed wall for each side.
-`omitUpper` and `omitLower` suppress wall tiers and their clipping without
-changing physical clearance; absent flags retain the solid-color fallback.
+`omitUpper` and `omitLower` suppress wall tiers and their clipping;
+`omitMiddle` suppresses a solid wall material while the ray still stops there.
+All three flags leave collision intact. FALSE flags retain solid-color fallback.
+Sectored worlds accept inverted floor/ceiling heights to represent closed
+regions; those regions cannot provide player clearance. Unsectored walls still
+require positive height.
 A sector can supply a sealed `skyTexture` with positive `skyUScale`/`skyVScale`
 and finite `skyVOffset`. Sky sampling depends on viewing angle and screen row;
 it ignores position and lighting. Caller-provided mapping keeps game constants
@@ -68,12 +74,22 @@ it is immutable through the public API and can be shared by simulation and
 rendering activities. Take an atomic copy of the world reference and camera
 state before rendering; rendering then holds no simulation monitor.
 
+`SetPartition` copies a bottom-up tree and its leaf-to-sector table. Nonnegative
+children name earlier nodes; negative children encode leaf index as `-index-1`.
+The last node is the root; an empty tree requires one leaf. Finite nonzero
+partition directions and all references are checked before publication.
+`Locate` and `Contains` use this tree within the wall bounds; without a tree
+they retain the closed-contour test. This indexes region membership; ray casting
+and collision continue to use the wall geometry. Rays choose the region
+immediately ahead of the camera so exact portal starts still render.
+
 `World.Move` divides movement into steps shorter than half the player radius
 and slides along blocked axes. It rejects invalid coordinates and moves longer
 than 2047 radii. It checks all walls, regardless of their vertical extent: this
 is planar collision. Sectored worlds use `Stand` and `MovePlayer` instead: these
 check nearby openings against the caller's radius, height and step limit,
-combine contacted floor/ceiling bounds and update feet height. Drop height snaps
+combine contacted floor/ceiling bounds and update feet height. Player contact
+may be exactly tangent to a wall; penetration is blocked. Drop height snaps
 to the floor; gravity, jumping and smoothing remain game policy.
 
 ## Limits and next steps
@@ -81,8 +97,8 @@ to the floor; gravity, jumping and smoothing remain game policy.
 The renderer casts one ray per column with a fixed field of view. Sectored worlds
 traverse openings in increasing distance, clip upper/lower walls and project
 floor/ceiling textures. Walls are grouped by their sector; collision still scans
-all walls. It has no masked surfaces, sprites or spatial acceleration. The
-presenter currently supports three- and four-byte desktop display formats.
+all walls. The partition tree accelerates region lookup only. It has no masked
+surfaces, sprites or wall spatial index. The presenter currently supports three- and four-byte desktop display formats.
 File reads are capped at 64 MiB. Geometry is capped at 131072 directed walls,
 65536 sectors and finite
 coordinates within one million world units.
