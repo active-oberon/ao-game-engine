@@ -4,6 +4,8 @@ Reusable game mechanisms in Active Oberon, with ao-doom as the first consumer.
 The current engine runs a deterministic simulation, renders textured walls and
 sector floor/ceiling planes and panoramic skies, and presents a software framebuffer through MiniA2's
 display interface.
+Two-sided middle materials render with binary coverage and retain the nearest
+covered texel through multiple portal openings.
 
 ## Build and check
 
@@ -24,6 +26,9 @@ node/leaf references, cycles, axis/diagonal decisions, exact boundary ties and
 wall bounds. Player checks distinguish tangent contact from penetration. Ceiling snapshot
 checks reject invalid input, preserve earlier worlds and update rendering and
 clearance together.
+Masked checks distinguish transparent texels from opaque black, reject
+unsealed materials and invalid texel density. Doom's integration checks cover
+layer ordering, clipping, offsets, pegging, moving ceilings and same-sector lines.
 Every executable has a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
@@ -33,7 +38,7 @@ Every executable has a ten-second timeout. The display is checked through
 - `GameClock`: conversion of elapsed milliseconds to exact fractional ticks.
 - `GameGeometry`: sealed sectors/wall segments, ray intersections and circle movement.
 - `GameSurface`: a reusable BGRX framebuffer and checked PPM export.
-- `GameMaterials`: sealed RGB textures with wrapping sample coordinates.
+- `GameMaterials`: sealed RGB textures with binary coverage and wrapping sample coordinates.
 - `GameRenderer`: perspective projection, material scale/offset, light and distance shading.
 - `GameDisplay`: integer scaling and presentation through MiniA2 `Displays`.
 - `GameBytes`: bounded file reads and explicit little-endian integer decoding.
@@ -62,8 +67,18 @@ Build a `World`, optionally call `SetSectors` and `SetPartition`, add validated
 walls, then `Seal` it before reading. Each sector wall names its owning sector and its neighbor, or
 `-1` for a solid boundary. Shared edges need a directed wall for each side.
 `omitUpper` and `omitLower` suppress wall tiers and their clipping;
-`omitMiddle` suppresses a solid wall material while the ray still stops there.
+`omitMiddle` suppresses solid or masked middle materials; rays still stop at
+solid boundaries and traverse two-sided openings.
 All three flags leave collision intact. FALSE flags retain solid-color fallback.
+On a two-sided wall, `texture` supplies a masked middle material with
+`texelsPerUnit`, world-unit offsets and `middleFromFloor` anchoring.
+It anchors to the lower ceiling by default, or the higher floor plus texture
+height. Vertical pixels do not repeat and stay inside the physical opening.
+`Texture.SampleMasked` returns `-1` for untouched texels and RGB for covered
+ones; setting black explicitly remains opaque. `Sample` preserves the opaque
+RGB contract and returns black for untouched texels. Both methods wrap their
+coordinates. The renderer uses a local 4096-row buffer, matching the maximum
+frame height, and does not allocate per frame or store every crossed grille.
 Sectored worlds accept inverted floor/ceiling heights to represent closed
 regions; those regions cannot provide player clearance. Unsectored walls still
 require positive height.
