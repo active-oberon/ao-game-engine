@@ -5,7 +5,8 @@ The current engine runs a deterministic simulation, renders textured walls and
 sector floor/ceiling planes and panoramic skies, and presents a software framebuffer through MiniA2's
 display interface.
 Two-sided middle materials render with binary coverage and retain the nearest
-covered texel through multiple portal openings.
+covered texel through multiple portal openings. Camera-facing sprites share
+the same depth checks with walls, grilles and floor/ceiling planes.
 
 ## Build and check
 
@@ -29,7 +30,9 @@ clearance together.
 Masked checks distinguish transparent texels from opaque black, reject
 unsealed materials and invalid texel density. Doom's integration checks cover
 layer ordering, clipping, offsets, pegging, moving ceilings and same-sector lines.
-Every executable has a ten-second timeout. The display is checked through
+Sprite checks cover depth ordering, reset, invisible occluders, transparent
+holes, opaque black, mirrored columns, fullbright shading, overlapping sprites
+and walls. Four executables each have a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
 ## Modules and ownership
@@ -37,15 +40,19 @@ Every executable has a ten-second timeout. The display is checked through
 - `GameLoop`: an active simulation object and a game-provided step delegate.
 - `GameClock`: conversion of elapsed milliseconds to exact fractional ticks.
 - `GameGeometry`: sealed sectors/wall segments, ray intersections and circle movement.
-- `GameSurface`: a reusable BGRX framebuffer and checked PPM export.
+- `GameSurface`: reusable BGRX and depth buffers, clipped depth writes and PPM export.
 - `GameMaterials`: sealed RGB textures with binary coverage and wrapping sample coordinates.
-- `GameRenderer`: perspective projection, material scale/offset, light and distance shading.
+- `GameRenderer`: wall/plane/sprite projection, material mapping, light and distance shading.
 - `GameDisplay`: integer scaling and presentation through MiniA2 `Displays`.
 - `GameBytes`: bounded file reads and explicit little-endian integer decoding.
 
 The engine does not import game modules or interpret Doom data. Build outputs
 stay in each consumer's own directory. Framebuffer storage is allocated once
 and reused; only diagnostic PPM export allocates an additional row buffer.
+The FLOAT64 depth buffer adds eight bytes per pixel: 512000 bytes at 320 x 200.
+`Background` resets depth, `DepthSpan` writes covered pixels only when they are
+no farther away, and `Occlude` blocks later pixels without changing the color.
+`Span` remains a color-only operation for backgrounds and overlays.
 
 ## Simulation contract
 
@@ -77,8 +84,9 @@ height. Vertical pixels do not repeat and stay inside the physical opening.
 `Texture.SampleMasked` returns `-1` for untouched texels and RGB for covered
 ones; setting black explicitly remains opaque. `Sample` preserves the opaque
 RGB contract and returns black for untouched texels. Both methods wrap their
-coordinates. The renderer uses a local 4096-row buffer, matching the maximum
-frame height, and does not allocate per frame or store every crossed grille.
+coordinates. Walls, planes, grilles and sprites use camera-forward depth.
+Solid boundaries still occlude sprites when their middle material is omitted.
+Rendering does not allocate per frame or store every crossed grille.
 Sectored worlds accept inverted floor/ceiling heights to represent closed
 regions; those regions cannot provide player clearance. Unsectored walls still
 require positive height.
@@ -90,6 +98,14 @@ their physical ceiling heights differ. After sealing
 it is immutable through the public API and can be shared by simulation and
 rendering activities. Take an atomic copy of the world reference and camera
 state before rendering; rendering then holds no simulation monitor.
+
+`GameRenderer.Sprite` supplies position, a sealed texture, texel density,
+pixel offsets from its left/top anchor, sector light, mirroring and fullbright
+flags. Call `DrawSprite` after `Render`; sprites can be submitted in any depth
+order. Transparent texels preserve the scene beneath them. Equal-depth covered
+pixels use the last submission. Sprite coordinates stay within one texture
+height/width rather than wrapping. Image selection, animation, world attachment
+and actor simulation belong to the game.
 
 `SetPartition` copies a bottom-up tree and its leaf-to-sector table. Nonnegative
 children name earlier nodes; negative children encode leaf index as `-index-1`.
@@ -129,14 +145,12 @@ to the floor; gravity, jumping and smoothing remain game policy.
 The renderer casts one ray per column with a fixed field of view. Sectored worlds
 traverse openings in increasing distance, clip upper/lower walls and project
 floor/ceiling textures. Walls are grouped by their sector; collision still scans
-all walls. The partition tree accelerates region lookup only. It has no masked
-surfaces, sprites or wall spatial index. The presenter currently supports three- and four-byte desktop display formats.
+all walls. The partition tree accelerates region lookup only. It has no wall spatial index. The presenter currently supports three- and four-byte desktop display formats.
 File reads are capped at 64 MiB. Geometry is capped at 131072 directed walls,
 65536 sectors and finite
 coordinates within one million world units.
 
-Next: masked surfaces and sprites. Add a spatial index when actual map costs
-justify it. Use
+Add a spatial index when actual map costs justify it. Use
 active objects for independent loading or rendering work only when ownership
 and measured benefit justify another activity; preserve deterministic gameplay.
 
