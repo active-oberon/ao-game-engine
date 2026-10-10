@@ -234,6 +234,46 @@ BEGIN
 	ASSERT(x < -0.25)
 END Sky;
 
+PROCEDURE FreePosition(x, y, radius: FLOAT64): BOOLEAN;
+BEGIN
+	RETURN (ABS(x) >= radius + 0.25) OR (ABS(y) >= radius + 0.25)
+END FreePosition;
+
+PROCEDURE Occupancy;
+VAR world: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	x, y, feet: FLOAT64;
+BEGIN
+	NEW(world, 8);
+	regions[0].ceiling := 2;
+	regions[1] := regions[0];
+	regions[1].floor := 0.25;
+	ASSERT(world.SetSectors(regions));
+	RoomWalls(world);
+	world.Seal;
+	x := -2;
+	y := 0;
+	feet := 0;
+	ASSERT(world.MovePlayerChecked(x, y, feet, 4, 0, 0.25, 0.875, 0.375, FreePosition));
+	ASSERT((x <= -0.5) & (x > -0.625) & (y = 0) & (feet = 0));
+	ASSERT(FreePosition(x, y, 0.25));
+	ASSERT(world.MovePlayerChecked(x, y, feet, 2, 1, 0.25, 0.875, 0.375, FreePosition));
+	ASSERT((x > 0.25) & (y > 0.9) & (feet = 0.25));
+	ASSERT(FreePosition(x, y, 0.25));
+	x := -2;
+	y := 0.5;
+	feet := 0;
+	ASSERT(world.MovePlayerChecked(x, y, feet, 4, 0, 0.25, 0.875, 0.375, FreePosition));
+	ASSERT((ABS(x - 2) < 0.000001) & (y = 0.5) & (feet = 0.25));
+	ASSERT(~world.MovePlayerChecked(x, y, feet, 1000, 0, 0.25, 0.875, 0.375, FreePosition));
+	ASSERT((ABS(x - 2) < 0.000001) & (y = 0.5) & (feet = 0.25));
+	x := -2;
+	y := 0;
+	feet := 0;
+	ASSERT(world.MovePlayerChecked(x, y, feet, 4, 0, 0.25, 0.875, 0.375, NIL));
+	ASSERT((ABS(x - 2) < 0.000001) & (feet = 0.25))
+END Occupancy;
+
 PROCEDURE Do*;
 VAR world: GameGeometry.World;
 	regions: ARRAY 2 OF GameGeometry.Sector;
@@ -247,6 +287,7 @@ BEGIN
 	MaskedMaterial;
 	Heights;
 	Sky;
+	Occupancy;
 	NEW(world, 8);
 	regions[0].floor := 0;
 	regions[0].ceiling := 2;

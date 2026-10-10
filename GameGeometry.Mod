@@ -5,6 +5,8 @@ IMPORT MathL, GameMaterials;
 CONST Limit = 1000000.0;
 
 TYPE
+	PositionCheck* = PROCEDURE {DELEGATE} (x, y, radius: FLOAT64): BOOLEAN;
+
 	Sector* = RECORD
 		floor*, ceiling*: FLOAT64;
 		light*: SIGNED32;
@@ -395,6 +397,13 @@ TYPE
 		END Stand;
 
 		PROCEDURE MovePlayer*(VAR x, y, feet: FLOAT64; dx, dy, radius, height, step: FLOAT64): BOOLEAN;
+		BEGIN
+			RETURN MovePlayerChecked(x, y, feet, dx, dy, radius, height, step, NIL)
+		END MovePlayer;
+
+		(* MovePlayerChecked applies game-owned occupancy before accepting each axis substep. *)
+		PROCEDURE MovePlayerChecked*(VAR x, y, feet: FLOAT64; dx, dy, radius, height, step: FLOAT64;
+			check: PositionCheck): BOOLEAN;
 		VAR i, steps: SIGNED32;
 			length, sx, sy, floor: FLOAT64;
 		BEGIN
@@ -409,17 +418,19 @@ TYPE
 			sx := dx / steps;
 			sy := dy / steps;
 			FOR i := 1 TO steps DO
-				IF Stand(x + sx, y, radius, feet, height, step, floor) THEN
+				IF Stand(x + sx, y, radius, feet, height, step, floor) &
+					((check = NIL) OR check(x + sx, y, radius)) THEN
 					x := x + sx;
 					feet := floor
 				END;
-				IF Stand(x, y + sy, radius, feet, height, step, floor) THEN
+				IF Stand(x, y + sy, radius, feet, height, step, floor) &
+					((check = NIL) OR check(x, y + sy, radius)) THEN
 					y := y + sy;
 					feet := floor
 				END
 			END;
 			RETURN TRUE
-		END MovePlayer;
+		END MovePlayerChecked;
 
 		PROCEDURE Free*(x, y, radius: FLOAT64): BOOLEAN;
 		VAR i: SIGNED32;
