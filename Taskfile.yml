@@ -11,6 +11,7 @@ tasks:
       - mkdir -p build
       - ob build GameLoopSmoke.Mod -o build/game-loop-smoke
       - ob build SceneSmoke.Mod -o build/scene-smoke
+      - ob build SectorSmoke.Mod -o build/sector-smoke
 
   check:
     desc: Check simulation, geometry, pixels, clock and byte decoding
@@ -18,3 +19,4 @@ tasks:
       - task: build
       - timeout 10 ./build/game-loop-smoke
       - timeout 10 ./build/scene-smoke
+      - timeout 10 ./build/sector-smoke

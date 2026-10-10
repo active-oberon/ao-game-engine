@@ -1,0 +1,101 @@
+MODULE SectorSmoke;
+
+IMPORT GameGeometry, GameSurface, GameRenderer, GameMaterials;
+
+PROCEDURE Wall(world: GameGeometry.World; sector, neighbor: SIGNED32; ax, ay, bx, by: FLOAT64);
+VAR wall: GameGeometry.Wall;
+BEGIN
+	wall.ax := ax;
+	wall.ay := ay;
+	wall.bx := bx;
+	wall.by := by;
+	wall.bottom := 0;
+	wall.top := 2;
+	wall.color := 0D08040H;
+	wall.light := 255;
+	wall.texture := NIL;
+	wall.upper := NIL;
+	wall.lower := NIL;
+	wall.sector := sector;
+	wall.neighbor := neighbor;
+	wall.blocking := FALSE;
+	wall.upperAnchor := 2;
+	wall.lowerAnchor := 0;
+	wall.xOffset := 0;
+	wall.yOffset := 0;
+	ASSERT(world.Add(wall))
+END Wall;
+
+PROCEDURE Do*;
+VAR world: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	region: GameGeometry.Sector;
+	wall: GameGeometry.Wall;
+	texture: GameMaterials.Texture;
+	frame: GameSurface.Frame;
+	x, y, feet, floor, distance: FLOAT64;
+BEGIN
+	NEW(world, 8);
+	regions[0].floor := 0;
+	regions[0].ceiling := 2;
+	regions[0].light := 255;
+	regions[1] := regions[0];
+	regions[1].floor := 0.25;
+	regions[1].ceiling := 1.75;
+	regions[1].light := -1;
+	ASSERT(~world.SetSectors(regions));
+	regions[1].light := 255;
+	NEW(texture, 1, 1);
+	regions[1].floorTexture := texture;
+	ASSERT(~world.SetSectors(regions));
+	texture.Set(0, 0, 000FF00H);
+	texture.Seal;
+	ASSERT(world.SetSectors(regions));
+	ASSERT(~world.SetSectors(regions));
+	regions[0].floor := -10;
+	Wall(world, 0, -1, -4, -2, 0, -2);
+	Wall(world, 0, -1, 0, 2, -4, 2);
+	Wall(world, 0, -1, -4, 2, -4, -2);
+	Wall(world, 1, -1, 0, -2, 4, -2);
+	Wall(world, 1, -1, 4, -2, 4, 2);
+	Wall(world, 1, -1, 4, 2, 0, 2);
+	Wall(world, 0, 1, 0, -2, 0, 2);
+	Wall(world, 1, 0, 0, 2, 0, -2);
+	world.Seal;
+	ASSERT(~world.SetSectors(regions));
+	ASSERT(world.SectorCount() = 2);
+	region := world.Region(0);
+	ASSERT(region.floor = 0);
+	ASSERT(world.Locate(-2, 0) = 0);
+	ASSERT(world.Locate(2, 0) = 1);
+	ASSERT(world.Locate(5, 0) = -1);
+	ASSERT(~world.Stand(-4, 0, 0.25, 0, 0.875, 0.375, floor));
+	ASSERT(~world.Stand(0, 0, 0.25, 0, 0.875, 0.2, floor));
+	ASSERT(~world.Stand(0, 0, 0.25, 0, 1.8, 0.375, floor));
+	ASSERT(world.Stand(0, 0, 0.25, 0, 0.875, 0.375, floor));
+	ASSERT(floor = 0.25);
+	x := -2;
+	y := 0;
+	feet := 0;
+	ASSERT(world.MovePlayer(x, y, feet, 4, 0, 0.25, 0.875, 0.375));
+	ASSERT(ABS(x - 2) < 0.000001);
+	ASSERT(feet = 0.25);
+	ASSERT(world.MovePlayer(x, y, feet, -4, 0, 0.25, 0.875, 0.375));
+	ASSERT(ABS(x + 2) < 0.000001);
+	ASSERT(feet = 0);
+	ASSERT(~world.MovePlayer(x, y, feet, 1000, 0, 0.25, 0.875, 0.375));
+	ASSERT(world.CastSector(0, -2, 0, 1, 0, 0, distance, wall));
+	ASSERT((distance = 2) & (wall.neighbor = 1));
+	ASSERT(world.CastSector(1, -2, 0, 1, 0, 2, distance, wall));
+	ASSERT((distance = 6) & (wall.neighbor = -1));
+	NEW(frame, 32, 20);
+	GameRenderer.Render(world, frame, -2, 0, 0, 0.64);
+	ASSERT(frame.Pixel(16, 10) # 0202938H);
+	ASSERT(frame.Pixel(16, 10) # 035302CH);
+	GameRenderer.Render(world, frame, 2, 0, 0, 0.89);
+	ASSERT(frame.Pixel(16, 19) MOD 256 = 0);
+	ASSERT(frame.Pixel(16, 19) DIV 65536 = 0);
+	ASSERT(frame.Pixel(16, 19) DIV 256 > 0)
+END Do;
+
+END SectorSmoke.

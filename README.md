@@ -1,8 +1,9 @@
 # ao-game-engine
 
 Reusable game mechanisms in Active Oberon, with ao-doom as the first consumer.
-The current engine runs a deterministic simulation, renders textured or flat colored walls,
-and presents a software framebuffer through MiniA2's display interface.
+The current engine runs a deterministic simulation, renders textured walls and
+sector floor/ceiling planes, and presents a software framebuffer through MiniA2's
+display interface.
 
 ## Build and check
 
@@ -15,6 +16,8 @@ task check
 The checks cover ordered ticks, concurrent callers, shutdown, ray intersections,
 wall endpoints, sliding collision, movement without tunneling, pixel clipping,
 signed binary decoding, hostile byte ranges, fractional tick accumulation, sealed materials, light levels, and wrapping texture coordinates.
+Sector checks cover copied immutable regions, portal ray traversal, bounded
+steps, player clearance, descent, and projected floor pixels.
 Every executable has a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
@@ -22,7 +25,7 @@ Every executable has a ten-second timeout. The display is checked through
 
 - `GameLoop`: an active simulation object and a game-provided step delegate.
 - `GameClock`: conversion of elapsed milliseconds to exact fractional ticks.
-- `GameGeometry`: sealed wall segments, ray intersections, and circle movement.
+- `GameGeometry`: sealed sectors/wall segments, ray intersections and circle movement.
 - `GameSurface`: a reusable BGRX framebuffer and checked PPM export.
 - `GameMaterials`: sealed RGB textures with wrapping sample coordinates.
 - `GameRenderer`: perspective projection, material scale/offset, light and distance shading.
@@ -49,7 +52,10 @@ activity that needs this lock. This version has no callback failure recovery.
 long pause and owns input snapshots. Doom clamps a frame delay to 250 ms and
 runs at 35 ticks per second; those choices are game policy.
 
-Build a `World`, add validated walls, then `Seal` it before reading. After sealing
+Build a `World`, optionally call `SetSectors`, add validated walls, then `Seal` it
+before reading. Each sector wall names its owning sector and its neighbor, or
+`-1` for a solid boundary. Shared edges need a directed wall for each side.
+After sealing
 it is immutable through the public API and can be shared by simulation and
 rendering activities. Take an atomic copy of the world reference and camera
 state before rendering; rendering then holds no simulation monitor.
@@ -57,19 +63,24 @@ state before rendering; rendering then holds no simulation monitor.
 `World.Move` divides movement into steps shorter than half the player radius
 and slides along blocked axes. It rejects invalid coordinates and moves longer
 than 2047 radii. It checks all walls, regardless of their vertical extent: this
-is planar collision, not a model of stairs, jumping, or sector transitions.
+is planar collision. Sectored worlds use `Stand` and `MovePlayer` instead: these
+check nearby openings against the caller's radius, height and step limit,
+combine contacted floor/ceiling bounds and update feet height. Drop height snaps
+to the floor; gravity, jumping and smoothing remain game policy.
 
 ## Limits and next steps
 
-The renderer casts one ray per column and scans every wall. It supports textured or flat
-colored vertical walls, a flat background, and a fixed field of view. It has no
-sprites, portals, floor projection, or spatial acceleration. The
+The renderer casts one ray per column with a fixed field of view. Sectored worlds
+traverse openings in increasing distance, clip upper/lower walls and project
+floor/ceiling textures. Walls are grouped by their sector; collision still scans
+all walls. It has no masked surfaces, sky panorama, sprites or spatial acceleration. The
 presenter currently supports three- and four-byte desktop display formats.
-File reads are capped at 64 MiB. Geometry is capped at 65536 walls and finite
+File reads are capped at 64 MiB. Geometry is capped at 131072 directed walls,
+65536 sectors and finite
 coordinates within one million world units.
 
-Next: loading image materials, then sector portals and
-floor projection. Add a spatial index when actual map costs justify it. Use
+Next: masked surfaces and sprites. Add a spatial index when actual map costs
+justify it. Use
 active objects for independent loading or rendering work only when ownership
 and measured benefit justify another activity; preserve deterministic gameplay.
 
