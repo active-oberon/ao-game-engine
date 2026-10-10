@@ -18,8 +18,9 @@ TYPE
 		color*, light*: SIGNED32;
 		texture*: GameMaterials.Texture;
 		uScale*, vScale*, uOffset*, vOffset*: FLOAT64;
-		sector*, neighbor*: SIGNED32;
+		id*, sector*, neighbor*: SIGNED32;
 		blocking*, omitMiddle*, omitUpper*, omitLower*: BOOLEAN;
+		middleFromFloor*, upperFromNeighbor*, lowerFromCeiling*: BOOLEAN;
 		upper*, lower*: GameMaterials.Texture;
 		upperAnchor*, lowerAnchor*, xOffset*, yOffset*, texelsPerUnit*: FLOAT64
 	END;
@@ -34,6 +35,7 @@ TYPE
 		sectors: POINTER TO ARRAY OF Sector;
 		heads, next, leaves: POINTER TO ARRAY OF SIGNED32;
 		partitions: POINTER TO ARRAY OF Partition;
+		ceilings: POINTER TO ARRAY OF FLOAT64;
 		minX, minY, maxX, maxY: FLOAT64;
 		count: SIGNED32;
 		sealed: BOOLEAN;
@@ -46,6 +48,7 @@ TYPE
 			sectors := NIL;
 			partitions := NIL;
 			leaves := NIL;
+			ceilings := NIL;
 			count := 0;
 			sealed := FALSE
 		END Init;
@@ -126,11 +129,55 @@ TYPE
 			RETURN SIGNED32(LEN(sectors^))
 		END SectorCount;
 
+		PROCEDURE Ceiling(index: SIGNED32): FLOAT64;
+		BEGIN
+			IF ceilings # NIL THEN
+				RETURN ceilings[index]
+			END;
+			RETURN sectors[index].ceiling
+		END Ceiling;
+
 		PROCEDURE Region*(index: SIGNED32): Sector;
+		VAR region: Sector;
 		BEGIN
 			ASSERT(sealed & (index >= 0) & (index < SectorCount()));
-			RETURN sectors[index]
+			region := sectors[index];
+			region.ceiling := Ceiling(index);
+			RETURN region
 		END Region;
+
+		(* WithCeilings copies heights while sharing sealed geometry so old render snapshots stay stable. *)
+		PROCEDURE WithCeilings*(CONST heights: ARRAY OF FLOAT64): World;
+		VAR snapshot: World;
+			i: SIGNED32;
+		BEGIN
+			IF ~sealed OR (sectors = NIL) OR (LEN(heights) # LEN(sectors^)) THEN
+				RETURN NIL
+			END;
+			FOR i := 0 TO SIGNED32(LEN(heights)) - 1 DO
+				IF ~Coordinate(heights[i]) THEN
+					RETURN NIL
+				END
+			END;
+			NEW(snapshot, 1);
+			snapshot.walls := walls;
+			snapshot.sectors := sectors;
+			snapshot.heads := heads;
+			snapshot.next := next;
+			snapshot.partitions := partitions;
+			snapshot.leaves := leaves;
+			snapshot.minX := minX;
+			snapshot.minY := minY;
+			snapshot.maxX := maxX;
+			snapshot.maxY := maxY;
+			snapshot.count := count;
+			NEW(snapshot.ceilings, LEN(heights));
+			FOR i := 0 TO SIGNED32(LEN(heights)) - 1 DO
+				snapshot.ceilings[i] := heights[i]
+			END;
+			snapshot.sealed := TRUE;
+			RETURN snapshot
+		END WithCeilings;
 
 		PROCEDURE Add*(CONST wall: Wall): BOOLEAN;
 		BEGIN
@@ -269,7 +316,7 @@ TYPE
 		PROCEDURE CastSector*(sector: SIGNED32; x, y, dx, dy, near: FLOAT64;
 			VAR distance: FLOAT64; VAR hit: Wall): BOOLEAN;
 		VAR i: SIGNED32;
-			sx, sy, qx, qy, denominator, t, u: FLOAT64;
+			sx, sy, qx, qy, denominator, t, u, shift: FLOAT64;
 			found: BOOLEAN;
 		BEGIN
 			ASSERT(sealed);
@@ -294,6 +341,20 @@ TYPE
 					IF (t > near + 0.000001) & (t < distance) & (u >= 0) & (u <= 1) THEN
 						distance := t;
 						hit := walls[i];
+						IF ceilings # NIL THEN
+							shift := Ceiling(hit.sector) - sectors[hit.sector].ceiling;
+							hit.top := hit.top + shift;
+							IF hit.middleFromFloor THEN
+								hit.vOffset := hit.vOffset - shift * hit.vScale
+							END;
+							IF hit.lowerFromCeiling THEN
+								hit.lowerAnchor := hit.lowerAnchor + shift
+							END;
+							IF hit.upperFromNeighbor & (hit.neighbor >= 0) THEN
+								shift := Ceiling(hit.neighbor) - sectors[hit.neighbor].ceiling
+							END;
+							hit.upperAnchor := hit.upperAnchor + shift
+						END;
 						found := TRUE
 					END
 				END;
@@ -320,14 +381,14 @@ TYPE
 				RETURN FALSE
 			END;
 			floor := sectors[sector].floor;
-			ceiling := sectors[sector].ceiling;
+			ceiling := Ceiling(sector);
 			FOR i := 0 TO count - 1 DO
 				IF DistanceSquared(walls[i], x, y) < radius * radius THEN
 					IF (walls[i].neighbor < 0) OR walls[i].blocking THEN
 						RETURN FALSE
 					END;
 					floor := MAX(floor, MAX(sectors[walls[i].sector].floor, sectors[walls[i].neighbor].floor));
-					ceiling := MIN(ceiling, MIN(sectors[walls[i].sector].ceiling, sectors[walls[i].neighbor].ceiling))
+					ceiling := MIN(ceiling, MIN(Ceiling(walls[i].sector), Ceiling(walls[i].neighbor)))
 				END
 			END;
 			RETURN (floor - feet <= step) & (ceiling - floor >= height) & (ceiling - feet >= height)

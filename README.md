@@ -21,7 +21,9 @@ steps, player clearance, descent, projected floor pixels, sealed sky materials,
 fullbright panorama mapping, shared sky across different ceiling heights and
 physical ceiling clearance beneath sky. Partition checks cover copied trees,
 node/leaf references, cycles, axis/diagonal decisions, exact boundary ties and
-wall bounds. Player checks distinguish tangent contact from penetration.
+wall bounds. Player checks distinguish tangent contact from penetration. Ceiling snapshot
+checks reject invalid input, preserve earlier worlds and update rendering and
+clearance together.
 Every executable has a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
@@ -82,6 +84,21 @@ partition directions and all references are checked before publication.
 they retain the closed-contour test. This indexes region membership; ray casting
 and collision continue to use the wall geometry. Rays choose the region
 immediately ahead of the camera so exact portal starts still render.
+
+`WithCeilings` returns a new sealed world with copied ceiling heights and shared
+geometry, sectors, materials and partition data. It returns NIL for an unsealed
+or unsectored source, an incorrect array length or non-finite/out-of-range
+heights. Earlier snapshots keep their heights. Region reads, rays and player
+clearance all use the same snapshot; callers publish it with their camera state.
+Each moving plane currently copies eight bytes per sector plus a world object.
+
+Wall `id` is opaque caller metadata returned with ray hits. Middle materials and
+upper anchors follow their owning ceiling by default. `middleFromFloor` keeps
+middle texture alignment fixed to the floor, `upperFromNeighbor` shifts upper
+anchors with the neighbor ceiling, and `lowerFromCeiling` shifts lower anchors
+with the owning ceiling. These flags preserve supplied base anchors and offsets.
+Floors do not move through this API; motion, activation and obstruction handling
+remain game policy.
 
 `World.Move` divides movement into steps shorter than half the player radius
 and slides along blocked axes. It rejects invalid coordinates and moves longer

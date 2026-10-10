@@ -102,6 +102,55 @@ BEGIN
 	END
 END Partition;
 
+PROCEDURE Heights;
+VAR world, closed, reopened: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	heights: ARRAY 2 OF FLOAT64;
+	short: ARRAY 1 OF FLOAT64;
+	region: GameGeometry.Sector;
+	frame: GameSurface.Frame;
+	floor: FLOAT64;
+	pixel: SIGNED32;
+BEGIN
+	NEW(world, 8);
+	heights[0] := 2;
+	heights[1] := 0;
+	ASSERT(world.WithCeilings(heights) = NIL);
+	regions[0].ceiling := 2;
+	regions[1] := regions[0];
+	ASSERT(world.SetSectors(regions));
+	RoomWalls(world);
+	ASSERT(world.WithCeilings(heights) = NIL);
+	world.Seal;
+	ASSERT(world.WithCeilings(short) = NIL);
+	heights[1] := 1000001;
+	ASSERT(world.WithCeilings(heights) = NIL);
+	heights[1] := 0;
+	closed := world.WithCeilings(heights);
+	ASSERT(closed # NIL);
+	heights[1] := 2;
+	region := closed.Region(1);
+	ASSERT(region.ceiling = 0);
+	ASSERT(~closed.Stand(0, 0, 0.25, 0, 1, 0, floor));
+	ASSERT(world.Stand(0, 0, 0.25, 0, 1, 0, floor));
+	NEW(frame, 32, 20);
+	GameRenderer.Render(world, frame, -2, 0, 0, 0.64);
+	pixel := frame.Pixel(16, 10);
+	GameRenderer.Render(closed, frame, -2, 0, 0, 0.64);
+	ASSERT(frame.Pixel(16, 10) # pixel);
+	reopened := closed.WithCeilings(heights);
+	ASSERT(reopened # NIL);
+	ASSERT(reopened.Stand(0, 0, 0.25, 0, 1, 0, floor));
+	ASSERT(reopened.Count() = world.Count());
+	ASSERT(reopened.Locate(2, 0) = 1);
+	GameRenderer.Render(world, frame, -2, 0, 0, 0.64);
+	ASSERT(frame.Pixel(16, 10) = pixel);
+	region := closed.Region(1);
+	ASSERT(region.ceiling = 0);
+	region := world.Region(1);
+	ASSERT(region.ceiling = 2)
+END Heights;
+
 PROCEDURE Sky;
 VAR world: GameGeometry.World;
 	regions: ARRAY 2 OF GameGeometry.Sector;
@@ -163,6 +212,7 @@ VAR world: GameGeometry.World;
 	x, y, feet, floor, distance: FLOAT64;
 BEGIN
 	Partition;
+	Heights;
 	Sky;
 	NEW(world, 8);
 	regions[0].floor := 0;
