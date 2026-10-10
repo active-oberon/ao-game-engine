@@ -1,6 +1,6 @@
 MODULE SceneSmoke;
 
-IMPORT GameGeometry, GameSurface, GameRenderer, GameClock, GameBytes, GameMaterials, MathL;
+IMPORT GameGeometry, GameSurface, GameRenderer, GameClock, GameBytes, GameMaterials, GameText, MathL;
 
 PROCEDURE Do*;
 VAR world: GameGeometry.World;
@@ -102,6 +102,15 @@ BEGIN
 	ASSERT(frame.Pixel(0, 19) = 0654321H);
 	frame.Span(1, 0, 0, 0FFFFFFH);
 	ASSERT(frame.Pixel(1, 0) = 0FFFFFFH);
+	frame.Background(0, 0);
+	GameText.Draw(frame, -1, -1, 0FF0000H, "A 1?");
+	ASSERT(frame.Pixel(1, 0) = 0FF0000H);
+	ASSERT(frame.Pixel(0, 0) = 0);
+	ASSERT(frame.Pixel(0, 1) = 0FF0000H);
+	ASSERT(frame.Pixel(7, 0) = 0FF0000H);
+	ASSERT(frame.Pixel(11, 0) = 0);
+	GameText.Draw(frame, 31, 19, 0FFFFFFH, "9");
+	ASSERT(frame.Pixel(31, 19) = 0FFFFFFH);
 	NEW(clock, 35);
 	total := 0;
 	FOR i := 1 TO 1000 DO
