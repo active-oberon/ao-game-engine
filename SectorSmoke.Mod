@@ -274,6 +274,39 @@ BEGIN
 	ASSERT((ABS(x - 2) < 0.000001) & (feet = 0.25))
 END Occupancy;
 
+PROCEDURE {TEST} RayPlanesAndPortals*;
+VAR world, closed: GameGeometry.World;
+	regions: ARRAY 2 OF GameGeometry.Sector;
+	heights: ARRAY 2 OF FLOAT64;
+BEGIN
+	NEW(world, 8);
+	regions[0].ceiling := 2;
+	regions[1] := regions[0];
+	ASSERT(world.SetSectors(regions));
+	RoomWalls(world);
+	world.Seal;
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0.5, 0, 8) = 6);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0.5, 0, 1) = 1);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0.5, -1, 8) = 0.5);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0.5, 1, 8) = 1.5);
+	heights[0] := 2;
+	heights[1] := 1;
+	closed := world.WithCeilings(heights);
+	ASSERT(ABS(closed.TraceRay(-2, 0, 1, 0, 0.5, 0.1, 8) - 5) < 0.000001);
+	ASSERT(closed.TraceRay(-2, 0, 1, 0, 1.5, 0, 8) = 2);
+	heights[1] := 0;
+	closed := world.WithCeilings(heights);
+	ASSERT(closed.TraceRay(-2, 0, 1, 0, 0.5, 0, 8) = 2);
+	ASSERT(closed.TraceRay(0, 0, 1, 0, 0.5, 0, 8) = 0);
+	ASSERT(closed.TraceRay(0, 0, -1, 0, 0.5, 0, 8) = 4);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0.5, 0, 8) = 6);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0, 0, 8) = 0);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 2, 0, 8) = 0);
+	ASSERT(world.TraceRay(20, 0, 1, 0, 0.5, 0, 8) = 0);
+	ASSERT(world.TraceRay(-2, 0, 1, 0, 0.5, 0, -1) = 0);
+	ASSERT(world.TraceRay(-2, 0, MAX(FLOAT64), 0, 0.5, 0, 8) = 0)
+END RayPlanesAndPortals;
+
 PROCEDURE Do*;
 VAR world: GameGeometry.World;
 	regions: ARRAY 2 OF GameGeometry.Sector;
@@ -283,6 +316,7 @@ VAR world: GameGeometry.World;
 	frame: GameSurface.Frame;
 	x, y, feet, floor, distance: FLOAT64;
 BEGIN
+	RayPlanesAndPortals;
 	Partition;
 	MaskedMaterial;
 	Heights;

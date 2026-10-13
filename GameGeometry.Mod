@@ -3,6 +3,8 @@ MODULE GameGeometry;
 IMPORT MathL, GameMaterials;
 
 CONST Limit = 1000000.0;
+	TraceTolerance = 0.000001;
+	MaximumTraceHits = 256;
 
 TYPE
 	PositionCheck* = PROCEDURE {DELEGATE} (x, y, radius: FLOAT64): BOOLEAN;
@@ -368,6 +370,51 @@ TYPE
 			END;
 			RETURN found
 		END CastSector;
+
+		(* TraceRay clips sloped rays to sector planes and openings without interpreting movement flags or game data. *)
+		PROCEDURE TraceRay*(x, y, dx, dy, eye, slope, range: FLOAT64): FLOAT64;
+		VAR wall: Wall;
+			front, back: Sector;
+			i, sector: SIGNED32;
+			near, distance, plane, z: FLOAT64;
+		BEGIN
+			IF ~Coordinate(dx) OR ~Coordinate(dy) OR ~Coordinate(eye) OR ~Coordinate(slope) OR
+				~Coordinate(range) OR (range < 0) THEN
+				RETURN 0
+			END;
+			sector := Locate(x + dx * TraceTolerance, y + dy * TraceTolerance);
+			IF sector < 0 THEN
+				RETURN 0
+			END;
+			front := Region(sector);
+			IF (eye <= front.floor) OR (eye >= front.ceiling) THEN
+				RETURN 0
+			END;
+			near := 0;
+			FOR i := 0 TO MIN(count, MaximumTraceHits) - 1 DO
+				front := Region(sector);
+				plane := range;
+				IF slope > TraceTolerance THEN
+					plane := MIN(plane, (front.ceiling - eye) / slope)
+				ELSIF slope < -TraceTolerance THEN
+					plane := MIN(plane, (front.floor - eye) / slope)
+				END;
+				IF ~CastSector(sector, x, y, dx, dy, near, distance, wall) OR (distance >= plane) THEN
+					RETURN MAX(near, plane)
+				END;
+				IF wall.neighbor < 0 THEN
+					RETURN distance
+				END;
+				back := Region(wall.neighbor);
+				z := eye + distance * slope;
+				IF (z <= MAX(front.floor, back.floor)) OR (z >= MIN(front.ceiling, back.ceiling)) THEN
+					RETURN distance
+				END;
+				sector := wall.neighbor;
+				near := distance
+			END;
+			RETURN 0
+		END TraceRay;
 
 		PROCEDURE Stand*(x, y, radius, feet, height, step: FLOAT64; VAR floor: FLOAT64): BOOLEAN;
 		VAR sector, i: SIGNED32;
