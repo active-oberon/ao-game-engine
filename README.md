@@ -40,14 +40,14 @@ and walls. Text checks cover glyph coverage, transparent spacing, unknown
 characters and clipping at the frame edges. Animation checks cover exact frame
 boundaries, looping, last-frame hold, copied input and large tick counts. Ray
 checks cover sloped floor/ceiling clipping, portals, closed ceiling snapshots,
-boundary starts and invalid inputs. Five executables each have a ten-second timeout. The display is checked through
+boundary starts and invalid inputs. Six executables each have a ten-second timeout. The display is checked through
 `task gui-check` in ao-doom, using the actual scene and targeted X11 key events.
 
 ## Modules and ownership
 
 - `GameLoop`: an active simulation object and a game-provided step delegate.
 - `GameClock`: conversion of elapsed milliseconds to exact fractional ticks.
-- `GameGeometry`: sealed sectors/wall segments, sloped ray clipping and circle movement.
+- `GameGeometry`: sealed sectors/wall segments, sloped ray clipping, circle movement and accepted-path observations.
 - `GameAnimation`: immutable tick-based clips with looping and last-frame hold.
 - `GameSurface`: reusable BGRX and depth buffers, clipped depth writes and PPM export.
 - `GameMaterials`: sealed RGB textures with binary coverage and wrapping sample coordinates.
@@ -152,6 +152,20 @@ radius and must return without mutating the movement state. Footprint shapes,
 actor height policy and actor storage remain game-owned. The initial position
 is validated against world geometry; occupancy checks apply to proposed moves,
 so a blocked actor does not change the operation's success/error contract.
+
+`MovePlayerObserved` additionally calls a `PositionChanged` delegate after each
+accepted, nonzero axis substep, with old and new x/y. Rejected axes, zero motion
+and invalid requests emit no observations. The callback must return without
+mutating movement/world state; games may queue actions for processing after
+the move. Existing movement entry points use a NIL observer.
+
+`Crossing` detects a side change through a finite wall segment and returns the
+movement fraction. Collinear, same-side and out-of-segment moves return FALSE
+and preserve the output. Exact boundary positions use a deterministic side
+convention; crossing onto that side fires once. Coordinates use the existing
+finite world bounds. Movement checks cover accepted sliding paths, rejected
+axes, invalid/zero moves, reverse crossing and endpoint ties. Games decide which
+segments activate actions and choose the first relevant crossing.
 
 `WithCeilings` returns a new sealed world with copied ceiling heights and shared
 geometry, sectors, materials and partition data. It returns NIL for an unsealed

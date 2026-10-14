@@ -14,6 +14,7 @@ tasks:
       - ob build SectorSmoke.Mod -o build/sector-smoke
       - ob build SpriteSmoke.Mod -o build/sprite-smoke
       - ob build AnimationSmoke.Mod -o build/animation-smoke
+      - ob build MovementSmoke.Mod -o build/movement-smoke
 
   check:
     desc: Check simulation, geometry, pixels, clock and byte decoding
@@ -24,3 +25,4 @@ tasks:
       - timeout 10 ./build/sector-smoke
       - timeout 10 ./build/sprite-smoke
       - timeout 10 ./build/animation-smoke
+      - timeout 10 ./build/movement-smoke

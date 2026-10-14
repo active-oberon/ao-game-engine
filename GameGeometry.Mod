@@ -8,6 +8,7 @@ CONST Limit = 1000000.0;
 
 TYPE
 	PositionCheck* = PROCEDURE {DELEGATE} (x, y, radius: FLOAT64): BOOLEAN;
+	PositionChanged* = PROCEDURE {DELEGATE} (x0, y0, x1, y1: FLOAT64);
 
 	Sector* = RECORD
 		floor*, ceiling*: FLOAT64;
@@ -451,8 +452,15 @@ TYPE
 		(* MovePlayerChecked applies game-owned occupancy before accepting each axis substep. *)
 		PROCEDURE MovePlayerChecked*(VAR x, y, feet: FLOAT64; dx, dy, radius, height, step: FLOAT64;
 			check: PositionCheck): BOOLEAN;
+		BEGIN
+			RETURN MovePlayerObserved(x, y, feet, dx, dy, radius, height, step, check, NIL)
+		END MovePlayerChecked;
+
+		(* MovePlayerObserved reports only accepted axis movement so triggers follow sliding rather than a guessed end-to-end path. *)
+		PROCEDURE MovePlayerObserved*(VAR x, y, feet: FLOAT64; dx, dy, radius, height, step: FLOAT64;
+			check: PositionCheck; changed: PositionChanged): BOOLEAN;
 		VAR i, steps: SIGNED32;
-			length, sx, sy, floor: FLOAT64;
+			length, sx, sy, floor, previous: FLOAT64;
 		BEGIN
 			IF ~Stand(x, y, radius, feet, height, step, floor) OR ~Coordinate(dx) OR ~Coordinate(dy) THEN
 				RETURN FALSE
@@ -467,17 +475,25 @@ TYPE
 			FOR i := 1 TO steps DO
 				IF Stand(x + sx, y, radius, feet, height, step, floor) &
 					((check = NIL) OR check(x + sx, y, radius)) THEN
+					previous := x;
 					x := x + sx;
-					feet := floor
+					feet := floor;
+					IF (changed # NIL) & (x # previous) THEN
+						changed(previous, y, x, y)
+					END
 				END;
 				IF Stand(x, y + sy, radius, feet, height, step, floor) &
 					((check = NIL) OR check(x, y + sy, radius)) THEN
+					previous := y;
 					y := y + sy;
-					feet := floor
+					feet := floor;
+					IF (changed # NIL) & (y # previous) THEN
+						changed(x, previous, x, y)
+					END
 				END
 			END;
 			RETURN TRUE
-		END MovePlayerChecked;
+		END MovePlayerObserved;
 
 		PROCEDURE Free*(x, y, radius: FLOAT64): BOOLEAN;
 		VAR i: SIGNED32;
@@ -540,6 +556,34 @@ BEGIN
 	END;
 	RETURN -(index + 1) < leaves
 END Child;
+
+(* Crossing reports a side change on a finite line segment, including the engine's deterministic boundary-side convention. *)
+PROCEDURE Crossing*(CONST wall: Wall; x0, y0, x1, y1: FLOAT64; VAR fraction: FLOAT64): BOOLEAN;
+VAR before, after, denominator, part, along, sx, sy: FLOAT64;
+BEGIN
+	IF ~Coordinate(wall.ax) OR ~Coordinate(wall.ay) OR ~Coordinate(wall.bx) OR ~Coordinate(wall.by) OR
+		~Coordinate(x0) OR ~Coordinate(y0) OR ~Coordinate(x1) OR ~Coordinate(y1) THEN
+		RETURN FALSE
+	END;
+	sx := wall.bx - wall.ax;
+	sy := wall.by - wall.ay;
+	before := (x0 - wall.ax) * sy - (y0 - wall.ay) * sx;
+	after := (x1 - wall.ax) * sy - (y1 - wall.ay) * sx;
+	IF (before >= 0) = (after >= 0) THEN
+		RETURN FALSE
+	END;
+	denominator := before - after;
+	IF ABS(denominator) <= TraceTolerance THEN
+		RETURN FALSE
+	END;
+	part := before / denominator;
+	along := (x0 + (x1 - x0) * part - wall.ax) * sx + (y0 + (y1 - y0) * part - wall.ay) * sy;
+	IF (along < 0) OR (along > sx * sx + sy * sy) THEN
+		RETURN FALSE
+	END;
+	fraction := part;
+	RETURN TRUE
+END Crossing;
 
 PROCEDURE Coordinate(value: FLOAT64): BOOLEAN;
 BEGIN
