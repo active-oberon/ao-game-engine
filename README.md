@@ -167,10 +167,11 @@ finite world bounds. Movement checks cover accepted sliding paths, rejected
 axes, invalid/zero moves, reverse crossing and endpoint ties. Games decide which
 segments activate actions and choose the first relevant crossing.
 
-`WithCeilings` returns a new sealed world with copied ceiling heights and shared
-geometry, sectors, materials and partition data. It returns NIL for an unsealed
+`WithCeilings` and `WithFloors` return new sealed worlds with copied plane
+heights and shared geometry, sectors, materials and partition data. Updating
+one plane preserves the other plane snapshot. It returns NIL for an unsealed
 or unsectored source, an incorrect array length or non-finite/out-of-range
-heights. Earlier snapshots keep their heights. Region reads, rays and player
+heights. Earlier snapshots keep their heights, and input arrays are copied. Region reads, rays and player
 clearance all use the same snapshot; callers publish it with their camera state.
 Each moving plane currently copies eight bytes per sector plus a world object.
 
@@ -190,8 +191,15 @@ upper anchors follow their owning ceiling by default. `middleFromFloor` keeps
 middle texture alignment fixed to the floor, `upperFromNeighbor` shifts upper
 anchors with the neighbor ceiling, and `lowerFromCeiling` shifts lower anchors
 with the owning ceiling. These flags preserve supplied base anchors and offsets.
-Floors do not move through this API; motion, activation and obstruction handling
-remain game policy.
+Moving floors update owning wall bottoms and floor-pegged one-sided middle
+offsets. Ordinary lower anchors track the neighbor floor; ceiling-pegged lower
+anchors retain their ceiling reference. Motion, activation and obstruction
+handling remain game policy.
+
+`TouchesSector` reports circles whose center lies inside a sector or whose
+footprint penetrates one of its boundaries. Tangent contact outside the sector
+is excluded, matching `Stand`. Invalid coordinates/radii return FALSE. Games
+use this bounded region query to limit moving-plane occupant checks.
 
 `World.Move` divides movement into steps shorter than half the player radius
 and slides along blocked axes. It rejects invalid coordinates and moves longer

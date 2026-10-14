@@ -40,7 +40,7 @@ TYPE
 		sectors: POINTER TO ARRAY OF Sector;
 		heads, next, leaves: POINTER TO ARRAY OF SIGNED32;
 		partitions: POINTER TO ARRAY OF Partition;
-		ceilings: POINTER TO ARRAY OF FLOAT64;
+		ceilings, floors: POINTER TO ARRAY OF FLOAT64;
 		minX, minY, maxX, maxY: FLOAT64;
 		count: SIGNED32;
 		sealed: BOOLEAN;
@@ -54,6 +54,7 @@ TYPE
 			partitions := NIL;
 			leaves := NIL;
 			ceilings := NIL;
+			floors := NIL;
 			count := 0;
 			sealed := FALSE
 		END Init;
@@ -142,12 +143,21 @@ TYPE
 			RETURN sectors[index].ceiling
 		END Ceiling;
 
+		PROCEDURE Floor(index: SIGNED32): FLOAT64;
+		BEGIN
+			IF floors # NIL THEN
+				RETURN floors[index]
+			END;
+			RETURN sectors[index].floor
+		END Floor;
+
 		PROCEDURE Region*(index: SIGNED32): Sector;
 		VAR region: Sector;
 		BEGIN
 			ASSERT(sealed & (index >= 0) & (index < SectorCount()));
 			region := sectors[index];
 			region.ceiling := Ceiling(index);
+			region.floor := Floor(index);
 			RETURN region
 		END Region;
 
@@ -164,6 +174,39 @@ TYPE
 					RETURN NIL
 				END
 			END;
+			snapshot := CopyGeometry();
+			NEW(snapshot.ceilings, LEN(heights));
+			FOR i := 0 TO SIGNED32(LEN(heights)) - 1 DO
+				snapshot.ceilings[i] := heights[i]
+			END;
+			snapshot.sealed := TRUE;
+			RETURN snapshot
+		END WithCeilings;
+
+		(* WithFloors copies plane heights and preserves ceiling snapshots so moving planes compose safely. *)
+		PROCEDURE WithFloors*(CONST heights: ARRAY OF FLOAT64): World;
+		VAR snapshot: World;
+			i: SIGNED32;
+		BEGIN
+			IF ~sealed OR (sectors = NIL) OR (LEN(heights) # LEN(sectors^)) THEN
+				RETURN NIL
+			END;
+			FOR i := 0 TO SIGNED32(LEN(heights)) - 1 DO
+				IF ~Coordinate(heights[i]) THEN
+					RETURN NIL
+				END
+			END;
+			snapshot := CopyGeometry();
+			NEW(snapshot.floors, LEN(heights));
+			FOR i := 0 TO SIGNED32(LEN(heights)) - 1 DO
+				snapshot.floors[i] := heights[i]
+			END;
+			RETURN snapshot
+		END WithFloors;
+
+		PROCEDURE CopyGeometry(): World;
+		VAR snapshot: World;
+		BEGIN
 			NEW(snapshot, 1);
 			snapshot.walls := walls;
 			snapshot.sectors := sectors;
@@ -176,13 +219,11 @@ TYPE
 			snapshot.maxX := maxX;
 			snapshot.maxY := maxY;
 			snapshot.count := count;
-			NEW(snapshot.ceilings, LEN(heights));
-			FOR i := 0 TO SIGNED32(LEN(heights)) - 1 DO
-				snapshot.ceilings[i] := heights[i]
-			END;
+			snapshot.ceilings := ceilings;
+			snapshot.floors := floors;
 			snapshot.sealed := TRUE;
 			RETURN snapshot
-		END WithCeilings;
+		END CopyGeometry;
 
 		PROCEDURE Add*(CONST wall: Wall): BOOLEAN;
 		BEGIN
@@ -272,6 +313,27 @@ TYPE
 			RETURN inside
 		END Contains;
 
+		(* TouchesSector limits moving-plane occupancy checks to circles intersecting the affected region. *)
+		PROCEDURE TouchesSector*(sector: SIGNED32; x, y, radius: FLOAT64): BOOLEAN;
+		VAR i: SIGNED32;
+		BEGIN
+			ASSERT(sealed & (sector >= 0) & (sector < SectorCount()));
+			IF ~Coordinate(x) OR ~Coordinate(y) OR ~((radius > 0) & (radius <= Limit)) THEN
+				RETURN FALSE
+			END;
+			IF Contains(sector, x, y) THEN
+				RETURN TRUE
+			END;
+			i := heads[sector];
+			WHILE i >= 0 DO
+				IF (walls[i].neighbor # sector) & (DistanceSquared(walls[i], x, y) < radius * radius) THEN
+					RETURN TRUE
+				END;
+				i := next[i]
+			END;
+			RETURN FALSE
+		END TouchesSector;
+
 		PROCEDURE Locate*(x, y: FLOAT64): SIGNED32;
 		VAR i: SIGNED32;
 			front: BOOLEAN;
@@ -360,6 +422,16 @@ TYPE
 							END;
 							hit.upperAnchor := hit.upperAnchor + shift
 						END;
+						IF floors # NIL THEN
+							shift := Floor(hit.sector) - sectors[hit.sector].floor;
+							hit.bottom := hit.bottom + shift;
+							IF hit.middleFromFloor & (hit.neighbor < 0) THEN
+								hit.vOffset := hit.vOffset + shift * hit.vScale
+							END;
+							IF ~hit.lowerFromCeiling & (hit.neighbor >= 0) THEN
+								hit.lowerAnchor := hit.lowerAnchor + Floor(hit.neighbor) - sectors[hit.neighbor].floor
+							END
+						END;
 						found := TRUE
 					END
 				END;
@@ -430,14 +502,14 @@ TYPE
 			IF sector < 0 THEN
 				RETURN FALSE
 			END;
-			floor := sectors[sector].floor;
+			floor := Floor(sector);
 			ceiling := Ceiling(sector);
 			FOR i := 0 TO count - 1 DO
 				IF DistanceSquared(walls[i], x, y) < radius * radius THEN
 					IF (walls[i].neighbor < 0) OR walls[i].blocking THEN
 						RETURN FALSE
 					END;
-					floor := MAX(floor, MAX(sectors[walls[i].sector].floor, sectors[walls[i].neighbor].floor));
+					floor := MAX(floor, MAX(Floor(walls[i].sector), Floor(walls[i].neighbor)));
 					ceiling := MIN(ceiling, MIN(Ceiling(walls[i].sector), Ceiling(walls[i].neighbor)))
 				END
 			END;
