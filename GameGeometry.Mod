@@ -5,6 +5,9 @@ IMPORT MathL, GameMaterials;
 CONST Limit = 1000000.0;
 	TraceTolerance = 0.000001;
 	MaximumTraceHits = 256;
+	MiddleTexture* = 0;
+	UpperTexture* = 1;
+	LowerTexture* = 2;
 
 TYPE
 	PositionCheck* = PROCEDURE {DELEGATE} (x, y, radius: FLOAT64): BOOLEAN;
@@ -203,6 +206,44 @@ TYPE
 			END;
 			RETURN snapshot
 		END WithFloors;
+
+		(* WithWallTexture copies wall materials while preserving geometry and earlier render snapshots. *)
+		PROCEDURE WithWallTexture*(index, part: SIGNED32; texture: GameMaterials.Texture): World;
+		VAR snapshot: World;
+			i: SIGNED32;
+		BEGIN
+			IF ~sealed OR (sectors = NIL) OR (index < 0) OR (index >= count) OR
+				(part < MiddleTexture) OR (part > LowerTexture) OR (texture = NIL) OR ~texture.sealed OR
+				~((walls[index].texelsPerUnit > 0) & (walls[index].texelsPerUnit <= 1024)) THEN
+				RETURN NIL
+			END;
+			snapshot := CopyGeometry();
+			NEW(snapshot.walls, count);
+			FOR i := 0 TO count - 1 DO
+				snapshot.walls[i] := walls[i]
+			END;
+			CASE part OF
+			MiddleTexture:
+				snapshot.walls[index].texture := texture;
+				snapshot.walls[index].uScale := walls[index].texelsPerUnit / texture.width;
+				snapshot.walls[index].vScale := walls[index].texelsPerUnit / texture.height;
+				snapshot.walls[index].uOffset := walls[index].xOffset * snapshot.walls[index].uScale;
+				snapshot.walls[index].vOffset := walls[index].yOffset * snapshot.walls[index].vScale;
+				IF walls[index].middleFromFloor & (walls[index].neighbor < 0) THEN
+					snapshot.walls[index].vOffset := snapshot.walls[index].vOffset +
+						(sectors[walls[index].sector].floor - sectors[walls[index].sector].ceiling) * snapshot.walls[index].vScale
+				END
+			| UpperTexture:
+				snapshot.walls[index].upper := texture;
+				IF walls[index].upperFromNeighbor & (walls[index].neighbor >= 0) THEN
+					snapshot.walls[index].upperAnchor := sectors[walls[index].neighbor].ceiling +
+						texture.height / walls[index].texelsPerUnit
+				END
+			| LowerTexture:
+				snapshot.walls[index].lower := texture
+			END;
+			RETURN snapshot
+		END WithWallTexture;
 
 		PROCEDURE CopyGeometry(): World;
 		VAR snapshot: World;

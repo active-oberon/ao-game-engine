@@ -175,6 +175,17 @@ heights. Earlier snapshots keep their heights, and input arrays are copied. Regi
 clearance all use the same snapshot; callers publish it with their camera state.
 Each moving plane currently copies eight bytes per sector plus a world object.
 
+`World.WithWallTexture(index, part, texture)` replaces one directed wall's
+middle, upper or lower material in a new sealed sector world. Use
+`MiddleTexture`, `UpperTexture` or `LowerTexture` for the part, and the zero-based
+wall insertion index. Geometry, partition data, plane snapshots, light and
+omission flags stay intact. Middle scales/offsets and neighbor-pegged upper
+anchors follow the new image dimensions. The method requires a sealed texture
+and valid `texelsPerUnit`, and returns NIL for invalid inputs. It copies the
+wall records only when called; games retain switch rules and button timing.
+SectorSmoke covers validation, dimensions, pegging, snapshot preservation and
+composition with moving floors/ceilings.
+
 `World.TraceRay(x, y, dx, dy, eye, slope, range)` clips a sloped center ray to
 solid boundaries, sector floors/ceilings and two-sided opening heights. x/y use
 the supplied direction times the ray parameter; z is eye plus slope times that
